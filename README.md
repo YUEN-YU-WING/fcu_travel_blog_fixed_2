@@ -2,6 +2,15 @@
 
 A new Flutter project.
 
+# 基礎功能介紹
+
+一個旅遊資訊平台，像一個部落格，所有人都可以上傳文章。
+核心功能:
+
+影像識別功能，找到特定地標
+
+自動補全地標資料，添加在文章最下面
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
