@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -32,7 +33,8 @@ class LandmarkDetectorPage extends StatefulWidget {
 }
 
 class _LandmarkDetectorPageState extends State<LandmarkDetectorPage> {
-  File? _image;
+  dynamic _imageInput; // Can be File (mobile) or XFile (web)
+  Uint8List? _webImageBytes; // For web image preview
   String? _result;
   bool _loading = false;
 
@@ -44,12 +46,20 @@ class _LandmarkDetectorPageState extends State<LandmarkDetectorPage> {
     if (picked == null) return;
 
     setState(() {
-      _image = File(picked.path);
+      _imageInput = kIsWeb ? picked : File(picked.path);
       _result = null;
       _loading = true;
     });
 
-    final landmark = await _vision.detectLandmark(_image!);
+    // For web, also load bytes for preview
+    if (kIsWeb) {
+      final bytes = await picked.readAsBytes();
+      setState(() {
+        _webImageBytes = bytes;
+      });
+    }
+
+    final landmark = await _vision.detectLandmark(_imageInput);
     setState(() {
       _result = landmark ?? '找不到地標';
       _loading = false;
@@ -57,9 +67,27 @@ class _LandmarkDetectorPageState extends State<LandmarkDetectorPage> {
   }
 
   Widget _buildImagePreview() {
-    if (_image == null) return const Text("尚未選擇圖片");
-    if (kIsWeb) return const Text("網頁平台不支援本地圖片預覽");
-    return Image.file(_image!, height: 200);
+    if (_imageInput == null) return const Text("尚未選擇圖片");
+    
+    if (kIsWeb) {
+      // Web platform - use bytes for preview
+      if (_webImageBytes != null) {
+        return Image.memory(
+          _webImageBytes!,
+          height: 200,
+          fit: BoxFit.contain,
+        );
+      } else {
+        return const Text("載入圖片中...");
+      }
+    } else {
+      // Mobile platform - use File
+      return Image.file(
+        _imageInput as File,
+        height: 200,
+        fit: BoxFit.contain,
+      );
+    }
   }
 
   @override
