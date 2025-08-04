@@ -8,7 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:fcu_travel_blog_fixed_2/main.dart';
+import 'package:fcu_travel_blog_fixed_2/image_recognition.dart';
 
 void main() {
   testWidgets('Landmark detection app loads correctly', (WidgetTester tester) async {
