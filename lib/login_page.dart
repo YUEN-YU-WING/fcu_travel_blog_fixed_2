@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'home_page.dart';
+import 'backend_home.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -23,7 +25,8 @@ class _LoginPageState extends State<LoginPage> {
         _message = "登入成功！";
       });
       // 登入成功後可以導航到主頁面
-      // Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage()));
+      //Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const BackendHomePage()));
     } on FirebaseAuthException catch (e) {
       setState(() {
         switch (e.code) {

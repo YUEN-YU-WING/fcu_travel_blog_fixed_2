@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'register_page.dart';
 import 'login_page.dart';
 import 'image_recognition.dart';
+import 'widgets/my_app_bar.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -18,22 +20,25 @@ class HomePage extends StatelessWidget {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const LandmarkDetectorPage()));
   }
 
+  void _goToProfile(BuildContext context) {
+    // TODO: replace with your profile page
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("前往個人資料頁")),
+    );
+  }
+
+  Future<void> _logout(BuildContext context) async {
+    await FirebaseAuth.instance.signOut();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("已登出")),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('首頁'),
-        actions: [
-          TextButton(
-            onPressed: () => _goToRegister(context),
-            child: const Text('註冊'),
-          ),
-          TextButton(
-            onPressed: () => _goToLogin(context),
-            child: const Text('登入'),
-          ),
-        ],
-      ),
+      appBar: const MyAppBar(title: "首頁"),
       body: Center(
         child: ElevatedButton(
           onPressed: () => _goToImageRecognition(context),
