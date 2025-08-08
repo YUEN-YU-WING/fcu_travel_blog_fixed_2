@@ -1,42 +1,43 @@
 import 'package:flutter/material.dart';
-import 'image_recognition.dart';
 import 'register_page.dart';
+import 'login_page.dart';
+import 'image_recognition.dart';
 
 class HomePage extends StatelessWidget {
-  const HomePage({Key? key}) : super(key: key);
-
-  void _goToImageRecognition(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const LandmarkDetectorPage()),
-    );
-  }
+  const HomePage({super.key});
 
   void _goToRegister(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const RegisterPage()),
-    );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterPage()));
+  }
+
+  void _goToLogin(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginPage()));
+  }
+
+  void _goToImageRecognition(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const LandmarkDetectorPage()));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('首頁')),
+      appBar: AppBar(
+        title: const Text('首頁'),
+        actions: [
+          TextButton(
+            onPressed: () => _goToRegister(context),
+            child: const Text('註冊'),
+          ),
+          TextButton(
+            onPressed: () => _goToLogin(context),
+            child: const Text('登入'),
+          ),
+        ],
+      ),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: () => _goToImageRecognition(context),
-              child: const Text('前往影像辨識'),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => _goToRegister(context),
-              child: const Text('註冊新帳號'),
-            ),
-          ],
+        child: ElevatedButton(
+          onPressed: () => _goToImageRecognition(context),
+          child: const Text('前往影像辨識'),
         ),
       ),
     );
