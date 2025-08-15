@@ -5,6 +5,7 @@ import 'login_page.dart';
 import 'home_page.dart';
 import 'settings_page.dart';
 import 'widgets/my_app_bar.dart';
+import 'edit_article_page.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -46,6 +47,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
   final List<Widget> _pages = [
     ProfilePage(),
     SettingsPage(),
+    EditArticlePage(),
     // 你可以繼續新增其他功能頁，例如 SettingsPage(), UserManagementPage() ...
   ];
 
@@ -78,6 +80,13 @@ class _BackendHomePageState extends State<BackendHomePage> {
                   selected: _selectedIndex == 1,
                   selectedTileColor: Colors.blueGrey[700],
                   onTap: () => setState(() => _selectedIndex = 1),
+                ),
+                ListTile(
+                  leading: Icon(Icons.edit, color: Colors.white),
+                  title: Text('編輯文章', style: TextStyle(color: Colors.white)),
+                  selected: _selectedIndex == 2,
+                  selectedTileColor: Colors.blueGrey[700],
+                  onTap: () => setState(() => _selectedIndex = 2),
                 ),
               ],
             ),
