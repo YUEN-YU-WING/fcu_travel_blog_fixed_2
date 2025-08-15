@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'edit_article_page.dart';
 
 class MyArticlesPage extends StatelessWidget {
   const MyArticlesPage({super.key});
@@ -12,7 +13,6 @@ class MyArticlesPage extends StatelessWidget {
       return const Center(child: Text('請先登入'));
     }
 
-    // Firestore 資料結構假設：articles(collection) -> { title, content, authorUid, createdAt }
     final articlesStream = FirebaseFirestore.instance
         .collection('articles')
         .where('authorUid', isEqualTo: user.uid)
@@ -27,6 +27,9 @@ class MyArticlesPage extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+          if (snapshot.hasError) {
+            return Center(child: Text('載入文章失敗: ${snapshot.error}'));
+          }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return const Center(child: Text('你還沒有文章'));
           }
@@ -37,23 +40,44 @@ class MyArticlesPage extends StatelessWidget {
             itemCount: docs.length,
             separatorBuilder: (_, __) => const Divider(),
             itemBuilder: (context, index) {
-              final data = docs[index].data() as Map<String, dynamic>;
+              final doc = docs[index];
+              final data = doc.data() as Map<String, dynamic>? ?? {};
+              final title = data['title'] ?? '';
+              final content = data['content'] ?? '';
               return ListTile(
-                title: Text(data['title'] ?? ''),
+                title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(
-                  data['content'] != null && data['content'].length > 50
-                      ? '${data['content'].substring(0, 50)}...'
-                      : (data['content'] ?? ''),
+                  content.length > 50 ? '${content.substring(0, 50)}...' : content,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  // 點擊可前往詳細或編輯頁
-                  // Navigator.push(...);
+                onTap: () async {
+                  // 跳轉到編輯頁，帶入文章內容
+                  final result = await Navigator.pushNamed(
+                    context,
+                    '/edit_article',
+                    arguments: {
+                      'articleId': doc.id,
+                      'initialTitle': title,
+                      'initialContent': content,
+                    },
+                  );
+                  // 若返回 true，可做刷新，但 StreamBuilder 會自動處理
                 },
               );
             },
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          // 跳轉到新增頁（無初始資料）
+          final result = await Navigator.pushNamed(context, '/edit_article');
+          // 若返回 true，可做刷新，但 StreamBuilder 會自動處理
+        },
+        child: const Icon(Icons.add),
+        tooltip: '新增文章',
       ),
     );
   }
