@@ -1,42 +1,48 @@
 import 'package:flutter/material.dart';
-import 'image_recognition.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'register_page.dart';
+import 'login_page.dart';
+import 'image_recognition.dart';
+import 'widgets/my_app_bar.dart';
 
 class HomePage extends StatelessWidget {
-  const HomePage({Key? key}) : super(key: key);
+  const HomePage({super.key});
+
+  void _goToRegister(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterPage()));
+  }
+
+  void _goToLogin(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginPage()));
+  }
 
   void _goToImageRecognition(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const LandmarkDetectorPage()),
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const LandmarkDetectorPage()));
+  }
+
+  void _goToProfile(BuildContext context) {
+    // TODO: replace with your profile page
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("前往個人資料頁")),
     );
   }
 
-  void _goToRegister(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const RegisterPage()),
+  Future<void> _logout(BuildContext context) async {
+    await FirebaseAuth.instance.signOut();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("已登出")),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
     return Scaffold(
-      appBar: AppBar(title: const Text('首頁')),
+      appBar: const MyAppBar(title: "首頁"),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: () => _goToImageRecognition(context),
-              child: const Text('前往影像辨識'),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => _goToRegister(context),
-              child: const Text('註冊新帳號'),
-            ),
-          ],
+        child: ElevatedButton(
+          onPressed: () => _goToImageRecognition(context),
+          child: const Text('前往影像辨識'),
         ),
       ),
     );
