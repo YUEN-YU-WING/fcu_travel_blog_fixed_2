@@ -7,6 +7,7 @@ import 'settings_page.dart';
 import 'widgets/my_app_bar.dart';
 import 'edit_article_page.dart';
 import 'my_articles_page.dart';
+import 'album_page.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -50,6 +51,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
     SettingsPage(),
     MyArticlesPage(),
     EditArticlePage(),
+    AlbumPage(),
     // 你可以繼續新增其他功能頁，例如 SettingsPage(), UserManagementPage() ...
   ];
 
@@ -96,6 +98,13 @@ class _BackendHomePageState extends State<BackendHomePage> {
                   selected: _selectedIndex == 3,
                   selectedTileColor: Colors.blueGrey[700],
                   onTap: () => setState(() => _selectedIndex = 3),
+                ),
+                ListTile(
+                  leading: Icon(Icons.photo, color: Colors.white),
+                  title: Text('相簿管理', style: TextStyle(color: Colors.white)),
+                  selected: _selectedIndex == 4,
+                  selectedTileColor: Colors.blueGrey[700],
+                  onTap: () => setState(() => _selectedIndex = 4),
                 ),
               ],
             ),
