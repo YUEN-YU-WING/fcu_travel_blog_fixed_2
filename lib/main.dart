@@ -6,6 +6,7 @@ import 'my_articles_page.dart';
 import 'edit_article_page.dart';
 import 'album_page.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'album_folder_page.dart';
 
 
 void main() async {
@@ -35,7 +36,7 @@ class MyMainApp extends StatelessWidget {
       routes: {
         '/my_articles': (context) => const MyArticlesPage(),
         '/edit_article': (context) => EditArticlePage.fromRouteArguments(context),
-        '/album': (context) => const AlbumPage(),
+        '/album': (context) => const AlbumFolderPage(),
       },
     );
   }

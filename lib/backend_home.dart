@@ -8,6 +8,7 @@ import 'widgets/my_app_bar.dart';
 import 'edit_article_page.dart';
 import 'my_articles_page.dart';
 import 'album_page.dart';
+import 'album_folder_page.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -51,7 +52,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
     SettingsPage(),
     MyArticlesPage(),
     EditArticlePage(),
-    AlbumPage(),
+    AlbumFolderPage(),
     // 你可以繼續新增其他功能頁，例如 SettingsPage(), UserManagementPage() ...
   ];
 
