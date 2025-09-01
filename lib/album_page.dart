@@ -15,6 +15,7 @@ class AlbumPage extends StatefulWidget {
 class _AlbumPageState extends State<AlbumPage> {
   final _picker = ImagePicker();
   bool _isUploading = false;
+  Set<String> _selectedPhotoIds = {};
 
   Future<void> _pickAndUploadImage() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -64,8 +65,64 @@ class _AlbumPageState extends State<AlbumPage> {
     } finally {
       setState(() => _isUploading = false);
     }
+  }
 
+  Future<void> _deleteSelectedPhotos(List<QueryDocumentSnapshot> docs) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
+    final photosToDelete = docs.where((doc) => _selectedPhotoIds.contains(doc.id)).toList();
+
+    for (final doc in photosToDelete) {
+      final data = doc.data() as Map<String, dynamic>? ?? {};
+      final fileName = data['fileName'] as String?;
+      try {
+        if (fileName != null) {
+          final storageRef = FirebaseStorage.instance
+              .ref()
+              .child('user_albums/${user.uid}/$fileName');
+          await storageRef.delete();
+        }
+      } catch (_) {
+        // 允許 Storage 沒有檔案
+      }
+      await FirebaseFirestore.instance.collection('photos').doc(doc.id).delete();
+    }
+
+    // 更新相簿照片數
+    final albumRef = FirebaseFirestore.instance.collection('albums').doc(widget.albumId);
+    await albumRef.update({
+      'photoCount': FieldValue.increment(-photosToDelete.length),
+    });
+
+    setState(() {
+      _selectedPhotoIds.clear();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已刪除${photosToDelete.length}張照片')),
+    );
+
+    await _updateAlbumCoverAfterDelete();
+  }
+
+  Future<void> _updateAlbumCoverAfterDelete() async {
+    final albumRef = FirebaseFirestore.instance.collection('albums').doc(widget.albumId);
+    final latestPhoto = await FirebaseFirestore.instance
+        .collection('photos')
+        .where('albumId', isEqualTo: widget.albumId)
+        .where('ownerUid', isEqualTo: FirebaseAuth.instance.currentUser!.uid)
+        .orderBy('uploadedAt', descending: true)
+        .limit(1)
+        .get();
+
+    if (latestPhoto.docs.isEmpty) {
+      // 沒有照片了，封面設為 null
+      await albumRef.update({'coverUrl': null});
+    } else {
+      final url = latestPhoto.docs.first['url'] as String;
+      await albumRef.update({'coverUrl': url});
+    }
   }
 
   @override
@@ -81,7 +138,56 @@ class _AlbumPageState extends State<AlbumPage> {
         .snapshots();
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.albumName)),
+      appBar: AppBar(
+        title: Text(widget.albumName),
+        actions: [
+          StreamBuilder<QuerySnapshot>(
+            stream: photosStream,
+            builder: (context, snapshot) {
+              final docs = snapshot.data?.docs ?? [];
+              final allSelected = _selectedPhotoIds.length == docs.length && docs.isNotEmpty;
+              return Row(
+                children: [
+                  if (_selectedPhotoIds.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      tooltip: '刪除選取照片',
+                      onPressed: () async {
+                        final isConfirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('刪除照片'),
+                            content: Text('確定要刪除選取的${_selectedPhotoIds.length}張照片嗎？'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('刪除')),
+                            ],
+                          ),
+                        );
+                        if (isConfirm == true) {
+                          await _deleteSelectedPhotos(docs);
+                        }
+                      },
+                    ),
+                  Checkbox(
+                    value: allSelected,
+                    onChanged: (checked) {
+                      setState(() {
+                        if (checked == true) {
+                          _selectedPhotoIds = docs.map((doc) => doc.id).toSet();
+                        } else {
+                          _selectedPhotoIds.clear();
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
       body: StreamBuilder<QuerySnapshot>(
         stream: photosStream,
         builder: (context, snapshot) {
@@ -89,6 +195,9 @@ class _AlbumPageState extends State<AlbumPage> {
             return const Center(child: CircularProgressIndicator());
           }
           final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return const Center(child: Text('此相簿尚未上傳任何照片'));
+          }
           return GridView.builder(
             padding: const EdgeInsets.all(12),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -102,20 +211,84 @@ class _AlbumPageState extends State<AlbumPage> {
               final data = doc.data() as Map<String, dynamic>? ?? {};
               final imageUrl = data['url'] as String?;
               if (imageUrl == null) return const SizedBox();
-              return Hero(
-                tag: imageUrl,
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (ctx, child, progress) =>
-                    progress == null ? child : const Center(child: CircularProgressIndicator()),
-                  ),
+              final isSelected = _selectedPhotoIds.contains(doc.id);
+
+              return GestureDetector(
+                onLongPress: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selectedPhotoIds.remove(doc.id);
+                    } else {
+                      _selectedPhotoIds.add(doc.id);
+                    }
+                  });
+                },
+                onTap: () {
+                  if (_selectedPhotoIds.isNotEmpty) {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedPhotoIds.remove(doc.id);
+                      } else {
+                        _selectedPhotoIds.add(doc.id);
+                      }
+                    });
+                  } else {
+                    // 預覽
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => Dialog(
+                        child: GestureDetector(
+                          onTap: () => Navigator.pop(ctx),
+                          child: InteractiveViewer(
+                            child: Image.network(imageUrl, fit: BoxFit.contain),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: Stack(
+                  children: [
+                    Hero(
+                      tag: imageUrl,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                            width: isSelected ? 3 : 1,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Image.network(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (ctx, child, progress) =>
+                          progress == null ? child : const Center(child: CircularProgressIndicator()),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 4,
+                      top: 4,
+                      child: Checkbox(
+                        value: isSelected,
+                        onChanged: (checked) {
+                          setState(() {
+                            if (checked == true) {
+                              _selectedPhotoIds.add(doc.id);
+                            } else {
+                              _selectedPhotoIds.remove(doc.id);
+                            }
+                          });
+                        },
+                        shape: const CircleBorder(),
+                        side: const BorderSide(width: 1, color: Colors.grey),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
