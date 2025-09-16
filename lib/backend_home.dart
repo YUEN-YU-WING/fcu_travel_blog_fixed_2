@@ -50,8 +50,8 @@ class _BackendHomePageState extends State<BackendHomePage> {
   final List<Widget> _pages = [
     ProfilePage(),
     SettingsPage(),
-    MyArticlesPage(),
     EditArticlePage(),
+    MyArticlesPage(),
     AlbumFolderPage(),
     // 你可以繼續新增其他功能頁，例如 SettingsPage(), UserManagementPage() ...
   ];
@@ -87,15 +87,15 @@ class _BackendHomePageState extends State<BackendHomePage> {
                   onTap: () => setState(() => _selectedIndex = 1),
                 ),
                 ListTile(
-                  leading: Icon(Icons.article, color: Colors.white),
-                  title: Text('我的文章', style: TextStyle(color: Colors.white)),
+                  leading: Icon(Icons.edit, color: Colors.white),
+                  title: Text('編輯文章', style: TextStyle(color: Colors.white)),
                   selected: _selectedIndex == 2,
                   selectedTileColor: Colors.blueGrey[700],
                   onTap: () => setState(() => _selectedIndex = 2),
                 ),
                 ListTile(
-                  leading: Icon(Icons.edit, color: Colors.white),
-                  title: Text('編輯文章', style: TextStyle(color: Colors.white)),
+                  leading: Icon(Icons.article, color: Colors.white),
+                  title: Text('我的文章', style: TextStyle(color: Colors.white)),
                   selected: _selectedIndex == 3,
                   selectedTileColor: Colors.blueGrey[700],
                   onTap: () => setState(() => _selectedIndex = 3),

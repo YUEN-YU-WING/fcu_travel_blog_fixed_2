@@ -1,114 +1,61 @@
+import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'vision_service.dart';
 
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class LandmarkTestPage extends StatefulWidget {
+  const LandmarkTestPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '地標分析 App',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
-      home: const LandmarkDetectorPage(),
-    );
-  }
+  State<LandmarkTestPage> createState() => _LandmarkTestPageState();
 }
 
-class LandmarkDetectorPage extends StatefulWidget {
-  const LandmarkDetectorPage({super.key});
+class _LandmarkTestPageState extends State<LandmarkTestPage> {
+  //final _visionService = VisionService(serverUrl: 'http://10.0.2.2:8080'); // Android 模擬器用
+   final _visionService = VisionService(serverUrl: 'http://localhost:8080'); // Web or iOS 用
 
-  @override
-  State<LandmarkDetectorPage> createState() => _LandmarkDetectorPageState();
-}
-
-class _LandmarkDetectorPageState extends State<LandmarkDetectorPage> {
-  dynamic _imageInput; // Can be File (mobile) or XFile (web)
-  Uint8List? _webImageBytes; // For web image preview
   String? _result;
-  bool _loading = false;
+  final _controller = TextEditingController();
+  File? _selectedImage;
 
-  final _vision = VisionService(apiKey: 'AIzaSyAZMzjy4FSHfhtwfWNbpKRmd13dS4xVE44'); // << 換成你自己的 API Key
-
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery);
-    if (picked == null) return;
-
-    setState(() {
-      _imageInput = kIsWeb ? picked : File(picked.path);
-      _result = null;
-      _loading = true;
-    });
-
-    // For web, also load bytes for preview
-    if (kIsWeb) {
-      final bytes = await picked.readAsBytes();
-      setState(() {
-        _webImageBytes = bytes;
-      });
-    }
-
-    final landmark = await _vision.detectLandmark(_imageInput);
-    setState(() {
-      _result = landmark ?? '找不到地標';
-      _loading = false;
-    });
-  }
-
-  Widget _buildImagePreview() {
-    if (_imageInput == null) return const Text("尚未選擇圖片");
-    
-    if (kIsWeb) {
-      // Web platform - use bytes for preview
-      if (_webImageBytes != null) {
-        return Image.memory(
-          _webImageBytes!,
-          height: 200,
-          fit: BoxFit.contain,
-        );
-      } else {
-        return const Text("載入圖片中...");
-      }
-    } else {
-      // Mobile platform - use File
-      return Image.file(
-        _imageInput as File,
-        height: 200,
-        fit: BoxFit.contain,
-      );
+  Future<void> _detectByUrl() async {
+    setState(() => _result = "分析中...");
+    try {
+      final landmark = await _visionService.detectLandmarkByUrl(_controller.text.trim());
+      setState(() => _result = landmark);
+    } catch (e) {
+      setState(() => _result = "錯誤: $e");
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("地標辨識")),
+      appBar: AppBar(title: const Text("地標辨識測試")),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            ElevatedButton(
-              onPressed: _pickImage,
-              child: const Text("選擇照片"),
+            // --- URL 辨識 ---
+            TextField(
+              controller: _controller,
+              decoration: const InputDecoration(
+                labelText: "圖片網址（Storage downloadUrl）",
+              ),
             ),
             const SizedBox(height: 16),
-            _buildImagePreview(),
-            const SizedBox(height: 16),
-            if (_loading)
-              const CircularProgressIndicator()
-            else if (_result != null)
-              Text("辨識結果：$_result"),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.link),
+              label: const Text("用網址分析地標"),
+              onPressed: _detectByUrl,
+            ),
+
+            const Divider(height: 40),
+
+            const SizedBox(height: 32),
+            Text(_result ?? "請輸入圖片網址"),
           ],
         ),
       ),

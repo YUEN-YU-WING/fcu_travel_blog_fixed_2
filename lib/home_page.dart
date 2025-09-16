@@ -17,7 +17,7 @@ class HomePage extends StatelessWidget {
   }
 
   void _goToImageRecognition(BuildContext context) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const LandmarkDetectorPage()));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const LandmarkTestPage()));
   }
 
   void _goToProfile(BuildContext context) {
