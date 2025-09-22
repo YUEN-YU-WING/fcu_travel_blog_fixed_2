@@ -5,6 +5,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'vision_service.dart';
 import 'storage_upload_service.dart';
 
+// 沒用的
 // 互動問題配置（可擴充更多問題）
 const List<Map<String, String>> interactiveQuestions = [
   {
