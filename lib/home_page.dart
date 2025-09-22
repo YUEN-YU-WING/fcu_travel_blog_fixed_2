@@ -4,6 +4,7 @@ import 'register_page.dart';
 import 'login_page.dart';
 import 'image_recognition.dart';
 import 'widgets/my_app_bar.dart';
+import 'ai_upload_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});

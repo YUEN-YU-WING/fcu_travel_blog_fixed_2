@@ -9,6 +9,9 @@ import 'edit_article_page.dart';
 import 'my_articles_page.dart';
 import 'album_page.dart';
 import 'album_folder_page.dart';
+import 'ai_upload_page.dart';
+import 'article_interactive_editor.dart';
+import 'test_photo_page.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -50,6 +53,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
   final List<Widget> _pages = [
     ProfilePage(),
     SettingsPage(),
+    ArticleInteractiveEditor(),
     EditArticlePage(),
     MyArticlesPage(),
     AlbumFolderPage(),
@@ -88,24 +92,31 @@ class _BackendHomePageState extends State<BackendHomePage> {
                 ),
                 ListTile(
                   leading: Icon(Icons.edit, color: Colors.white),
-                  title: Text('編輯文章', style: TextStyle(color: Colors.white)),
+                  title: Text('AI協助編輯', style: TextStyle(color: Colors.white)),
                   selected: _selectedIndex == 2,
                   selectedTileColor: Colors.blueGrey[700],
                   onTap: () => setState(() => _selectedIndex = 2),
                 ),
                 ListTile(
-                  leading: Icon(Icons.article, color: Colors.white),
-                  title: Text('我的文章', style: TextStyle(color: Colors.white)),
+                  leading: Icon(Icons.edit, color: Colors.white),
+                  title: Text('編輯文章', style: TextStyle(color: Colors.white)),
                   selected: _selectedIndex == 3,
                   selectedTileColor: Colors.blueGrey[700],
                   onTap: () => setState(() => _selectedIndex = 3),
                 ),
                 ListTile(
-                  leading: Icon(Icons.photo, color: Colors.white),
-                  title: Text('相簿管理', style: TextStyle(color: Colors.white)),
+                  leading: Icon(Icons.article, color: Colors.white),
+                  title: Text('我的文章', style: TextStyle(color: Colors.white)),
                   selected: _selectedIndex == 4,
                   selectedTileColor: Colors.blueGrey[700],
                   onTap: () => setState(() => _selectedIndex = 4),
+                ),
+                ListTile(
+                  leading: Icon(Icons.photo, color: Colors.white),
+                  title: Text('相簿管理', style: TextStyle(color: Colors.white)),
+                  selected: _selectedIndex == 5,
+                  selectedTileColor: Colors.blueGrey[700],
+                  onTap: () => setState(() => _selectedIndex = 5),
                 ),
               ],
             ),

@@ -33,15 +33,17 @@ class _AlbumPageState extends State<AlbumPage> {
 
     final bytes = await pickedFile.readAsBytes(); // 支援 Web
     final fileName = '${DateTime.now().millisecondsSinceEpoch}_${user.uid}.jpg';
-    final storageRef = FirebaseStorage.instance.ref().child('user_albums/${user.uid}/$fileName');
+    final storagePath = 'user_albums/${user.uid}/$fileName';
+    final storageRef = FirebaseStorage.instance.ref().child(storagePath);
 
     try {
       final uploadTask = await storageRef.putData(bytes); // 取代 putFile
       final downloadUrl = await uploadTask.ref.getDownloadURL();
 
-      // 寫入 Firestore
+      // 寫入 Firestore，存 storagePath 而非 url
       await FirebaseFirestore.instance.collection('photos').add({
-        'url': downloadUrl,
+        'storagePath': storagePath,
+        'url': downloadUrl, // 仍可存 downloadUrl 供前端快取用（可選）
         'ownerUid': user.uid,
         'uploadedAt': FieldValue.serverTimestamp(),
         'fileName': fileName,
@@ -75,12 +77,10 @@ class _AlbumPageState extends State<AlbumPage> {
 
     for (final doc in photosToDelete) {
       final data = doc.data() as Map<String, dynamic>? ?? {};
-      final fileName = data['fileName'] as String?;
+      final storagePath = data['storagePath'] as String?;
       try {
-        if (fileName != null) {
-          final storageRef = FirebaseStorage.instance
-              .ref()
-              .child('user_albums/${user.uid}/$fileName');
+        if (storagePath != null) {
+          final storageRef = FirebaseStorage.instance.ref().child(storagePath);
           await storageRef.delete();
         }
       } catch (_) {
@@ -120,8 +120,19 @@ class _AlbumPageState extends State<AlbumPage> {
       // 沒有照片了，封面設為 null
       await albumRef.update({'coverUrl': null});
     } else {
-      final url = latestPhoto.docs.first['url'] as String;
+      // 封面仍用 downloadUrl（可改成 storagePath 並於前端取得 downloadUrl）
+      final url = latestPhoto.docs.first['url'] as String?;
       await albumRef.update({'coverUrl': url});
+    }
+  }
+
+  Future<String?> _getDownloadUrl(String? storagePath, String? urlFromDB) async {
+    if (urlFromDB != null && urlFromDB.isNotEmpty) return urlFromDB;
+    if (storagePath == null || storagePath.isEmpty) return null;
+    try {
+      return await FirebaseStorage.instance.ref().child(storagePath).getDownloadURL();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -209,87 +220,98 @@ class _AlbumPageState extends State<AlbumPage> {
             itemBuilder: (context, index) {
               final doc = docs[index];
               final data = doc.data() as Map<String, dynamic>? ?? {};
-              final imageUrl = data['url'] as String?;
-              if (imageUrl == null) return const SizedBox();
+              final storagePath = data['storagePath'] as String?;
+              final urlFromDB = data['url'] as String?;
               final isSelected = _selectedPhotoIds.contains(doc.id);
 
-              return GestureDetector(
-                onLongPress: () {
-                  setState(() {
-                    if (isSelected) {
-                      _selectedPhotoIds.remove(doc.id);
-                    } else {
-                      _selectedPhotoIds.add(doc.id);
-                    }
-                  });
-                },
-                onTap: () {
-                  if (_selectedPhotoIds.isNotEmpty) {
-                    setState(() {
-                      if (isSelected) {
-                        _selectedPhotoIds.remove(doc.id);
-                      } else {
-                        _selectedPhotoIds.add(doc.id);
-                      }
-                    });
-                  } else {
-                    // 預覽
-                    showDialog(
-                      context: context,
-                      builder: (ctx) => Dialog(
-                        child: GestureDetector(
-                          onTap: () => Navigator.pop(ctx),
-                          child: InteractiveViewer(
-                            child: Image.network(imageUrl, fit: BoxFit.contain),
-                          ),
-                        ),
-                      ),
-                    );
+              return FutureBuilder<String?>(
+                future: _getDownloadUrl(storagePath, urlFromDB),
+                builder: (context, snapshot) {
+                  final imageUrl = snapshot.data;
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SizedBox(height: 120, child: Center(child: CircularProgressIndicator()));
                   }
-                },
-                child: Stack(
-                  children: [
-                    Hero(
-                      tag: imageUrl,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
-                            width: isSelected ? 3 : 1,
+                  if (imageUrl == null) return const SizedBox();
+
+                  return GestureDetector(
+                    onLongPress: () {
+                      setState(() {
+                        if (isSelected) {
+                          _selectedPhotoIds.remove(doc.id);
+                        } else {
+                          _selectedPhotoIds.add(doc.id);
+                        }
+                      });
+                    },
+                    onTap: () {
+                      if (_selectedPhotoIds.isNotEmpty) {
+                        setState(() {
+                          if (isSelected) {
+                            _selectedPhotoIds.remove(doc.id);
+                          } else {
+                            _selectedPhotoIds.add(doc.id);
+                          }
+                        });
+                      } else {
+                        // 預覽
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => Dialog(
+                            child: GestureDetector(
+                              onTap: () => Navigator.pop(ctx),
+                              child: InteractiveViewer(
+                                child: Image.network(imageUrl, fit: BoxFit.contain),
+                              ),
+                            ),
                           ),
-                          borderRadius: BorderRadius.circular(8),
+                        );
+                      }
+                    },
+                    child: Stack(
+                      children: [
+                        Hero(
+                          tag: imageUrl,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+                                width: isSelected ? 3 : 1,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (ctx, child, progress) =>
+                              progress == null ? child : const Center(child: CircularProgressIndicator()),
+                            ),
+                          ),
                         ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (ctx, child, progress) =>
-                          progress == null ? child : const Center(child: CircularProgressIndicator()),
+                        Positioned(
+                          left: 4,
+                          top: 4,
+                          child: Checkbox(
+                            value: isSelected,
+                            onChanged: (checked) {
+                              setState(() {
+                                if (checked == true) {
+                                  _selectedPhotoIds.add(doc.id);
+                                } else {
+                                  _selectedPhotoIds.remove(doc.id);
+                                }
+                              });
+                            },
+                            shape: const CircleBorder(),
+                            side: const BorderSide(width: 1, color: Colors.grey),
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                    Positioned(
-                      left: 4,
-                      top: 4,
-                      child: Checkbox(
-                        value: isSelected,
-                        onChanged: (checked) {
-                          setState(() {
-                            if (checked == true) {
-                              _selectedPhotoIds.add(doc.id);
-                            } else {
-                              _selectedPhotoIds.remove(doc.id);
-                            }
-                          });
-                        },
-                        shape: const CircleBorder(),
-                        side: const BorderSide(width: 1, color: Colors.grey),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
-                ),
+                  );
+                },
               );
             },
           );
