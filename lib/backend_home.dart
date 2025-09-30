@@ -12,6 +12,7 @@ import 'album_folder_page.dart';
 import 'ai_upload_page.dart';
 import 'article_interactive_editor.dart';
 import 'test_photo_page.dart';
+import 'markdown_editor.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -54,7 +55,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
     ProfilePage(),
     SettingsPage(),
     ArticleInteractiveEditor(),
-    EditArticlePage(),
+    MarkDownEditorPage(),
     MyArticlesPage(),
     AlbumFolderPage(),
     // 你可以繼續新增其他功能頁，例如 SettingsPage(), UserManagementPage() ...

@@ -93,17 +93,19 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
       final landmark = _landmarkResults[img.id] ?? '';
       final imgUrl = await getDownloadUrl(img.storagePath);
 
-      String section = '';
+      // Markdown 區塊
+      String section = '### ';
       if (order.isNotEmpty) section += '第$order張';
       if (landmark.isNotEmpty) section += '：$landmark';
-      section += '\n';
-      if (note.isNotEmpty) section += '說明：$note\n';
+      section += '\n\n';
+      section += '![]($imgUrl)\n\n';
+      if (note.isNotEmpty) section += '說明：$note\n\n';
       if (landmark.isNotEmpty) section += '地標：$landmark\n';
-      section += '圖片：$imgUrl\n';
-      sections.add(section);
+
+      sections.add(section.trim());
     }
     setState(() {
-      _articlePreview = sections.join('\n');
+      _articlePreview = sections.join('\n\n---\n\n'); // 每段用分隔線
     });
   }
 
