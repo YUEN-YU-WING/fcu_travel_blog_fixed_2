@@ -4,6 +4,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'vision_service.dart';
+import 'open_ai_service.dart';
 import 'package:flutter/services.dart';
 
 // 資料結構
@@ -38,7 +39,10 @@ class ArticleImage {
 }
 
 Future<List<ArticleImage>> loadImagesFromDatabase() async {
-  final query = await FirebaseFirestore.instance.collection('photos').get();
+  final query = await FirebaseFirestore.instance
+      .collection('photos')
+      .orderBy('uploadedAt', descending: true)
+      .get();
   return query.docs.map((doc) => ArticleImage.fromDoc(doc)).toList();
 }
 
@@ -141,15 +145,72 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
 
   // UI顯示地標
   Widget _buildLandmarkResult(ArticleImage img) {
-    final landmark = _landmarkResults[img.id];
-    if (landmark == null || landmark.isEmpty) return const SizedBox.shrink();
-    return Row(
-      children: [
-        const Icon(Icons.location_on, color: Colors.green),
-        const SizedBox(width: 4),
-        Text("地標: $landmark", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-      ],
+    final landmark = _landmarkResults[img.id] ?? '';
+    if (landmark.isNotEmpty) {
+      return Row(
+        children: [
+          const Icon(Icons.location_on, color: Colors.green),
+          const SizedBox(width: 4),
+          Text("地標: $landmark", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+          IconButton(
+            icon: const Icon(Icons.edit, size: 18),
+            tooltip: '修改地標',
+            onPressed: () => _showEditLandmarkDialog(img),
+          ),
+        ],
+      );
+    } else {
+      return Row(
+        children: [
+          const Icon(Icons.location_on, color: Colors.orange),
+          const SizedBox(width: 4),
+          Flexible(
+            child: GestureDetector(
+              onTap: () => _showEditLandmarkDialog(img),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: const Text(
+                  "尚未辨識到地標，點這裡補充",
+                  style: TextStyle(color: Colors.orange, fontStyle: FontStyle.italic),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+  }
+
+// 彈出手動輸入地標的Dialog
+  Future<void> _showEditLandmarkDialog(ArticleImage img) async {
+    final controller = TextEditingController(text: _landmarkResults[img.id] ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('編輯地標'),
+        content: TextField(
+          controller: controller,
+          maxLength: 20,
+          decoration: const InputDecoration(hintText: "請輸入地標名稱（中文）"),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('確定')),
+        ],
+      ),
     );
+    if (result != null && result.isNotEmpty) {
+      setState(() {
+        _landmarkResults[img.id] = result;
+        _generateArticlePreview();
+      });
+    }
   }
 
   @override
@@ -249,6 +310,43 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
     );
   }
 
+  List<Map<String, String>> _collectSpotInfo() {
+    final List<Map<String, String>> spots = [];
+    for (final img in _images.where((img) => _selectedImageIds.contains(img.id))) {
+      final note = _answers[img.id]?['note'] ?? '';
+      final landmark = _landmarkResults[img.id] ?? '';
+      if (landmark.isNotEmpty || note.isNotEmpty) {
+        spots.add({
+          "landmark": landmark.isNotEmpty ? landmark : img.fileName,
+          "note": note,
+        });
+      }
+    }
+    return spots;
+  }
+
+  String _aiGeneratedArticle = '';
+  bool _generatingAI = false;
+
+  //串接OpenAI API
+  Future<void> _generateAIArticle() async {
+    setState(() => _generatingAI = true);
+    try {
+      final spots = _collectSpotInfo();
+      if (spots.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先完成問答與地標分析')));
+        setState(() => _generatingAI = false);
+        return;
+      }
+      final aiText = await generateTravelArticleWithOpenAI(spots);
+      setState(() => _aiGeneratedArticle = aiText);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI產生失敗: $e')));
+    } finally {
+      setState(() => _generatingAI = false);
+    }
+  }
+
   Future<bool> _confirmDelete(BuildContext context, ArticleImage img) async {
     final downloadUrl = await getDownloadUrl(img.storagePath);
     return await showDialog<bool>(
@@ -304,12 +402,12 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
                           children: [
                             _buildImageWidget(img),
                             const SizedBox(height: 12),
-                            Text("圖片ID: ${img.id}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                            //Text("圖片ID: ${img.id}", style: const TextStyle(fontWeight: FontWeight.bold)),
                             Text("檔名: ${img.fileName}"),
-                            Text("Storage路徑: ${img.storagePath}"),
+                            //Text("Storage路徑: ${img.storagePath}"),
                             Text("所屬相簿: ${img.albumId}"),
-                            Text("上傳者UID: ${img.ownerUid}"),
-                            Text("上傳時間: ${img.uploadedAt}"),
+                            //Text("上傳者UID: ${img.ownerUid}"),
+                            //Text("上傳時間: ${img.uploadedAt}"),
                             const SizedBox(height: 8),
                             _buildAnswerList(img),
                             _buildLandmarkResult(img),
@@ -411,13 +509,59 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
                     margin: const EdgeInsets.only(top: 8, bottom: 8),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
-                    child: SelectableText(_articlePreview),
+                    child: SizedBox(
+                      height: 200, // ← 你可以調整這個高度（單位: px）
+                      child: SingleChildScrollView(
+                        child: SelectableText(_articlePreview),
+                      ),
+                    ),
                   ),
                   ElevatedButton.icon(
                     icon: const Icon(Icons.copy),
                     label: const Text('複製到剪貼簿'),
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: _articlePreview));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已複製')));
+                    },
+                  ),
+                ],
+              ),
+            ),
+          if (_selectedImageIds.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: ElevatedButton.icon(
+                icon: _generatingAI
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.auto_stories),
+                label: const Text('AI自動生成遊記'),
+                onPressed: _generatingAI ? null : _generateAIArticle,
+              ),
+            ),
+          // AI自動生成遊記區
+          if (_aiGeneratedArticle.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('AI自動生成遊記', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  Container(
+                    margin: const EdgeInsets.only(top: 8, bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                    child: SizedBox(
+                      height: 200, // ← 你可以調整這個高度（單位: px）
+                      child: SingleChildScrollView(
+                        child: SelectableText(_aiGeneratedArticle),
+                      ),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.copy),
+                    label: const Text('複製到剪貼簿'),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: _aiGeneratedArticle));
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已複製')));
                     },
                   ),
