@@ -7,6 +7,9 @@ import 'edit_article_page.dart';
 import 'album_page.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'album_folder_page.dart';
+import 'MapPage.dart';
+import 'PlaceSearchPage.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart'; // ✅ 加入 LatLng
 
 
 
@@ -38,6 +41,9 @@ class MyMainApp extends StatelessWidget {
         '/my_articles': (context) => const MyArticlesPage(),
         '/edit_article': (context) => EditArticlePage.fromRouteArguments(context),
         '/album': (context) => const AlbumFolderPage(),
+        '/map': (context) => const MapPage(),
+        '/search': (context) => const PlaceSearchPage(),
+
       },
     );
   }

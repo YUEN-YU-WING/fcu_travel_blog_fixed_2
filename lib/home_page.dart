@@ -5,6 +5,7 @@ import 'login_page.dart';
 import 'image_recognition.dart';
 import 'widgets/my_app_bar.dart';
 import 'ai_upload_page.dart';
+import 'MapPage.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -19,6 +20,10 @@ class HomePage extends StatelessWidget {
 
   void _goToImageRecognition(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const LandmarkTestPage()));
+  }
+
+  void _goToMapPage(BuildContext context){
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const MapPage()));
   }
 
   void _goToProfile(BuildContext context) {
@@ -41,11 +46,17 @@ class HomePage extends StatelessWidget {
     return Scaffold(
       appBar: const MyAppBar(title: "首頁"),
       body: Center(
-        child: ElevatedButton(
-          onPressed: () => _goToImageRecognition(context),
-          child: const Text('前往影像辨識'),
+        // child: ElevatedButton(
+        //   onPressed: () => _goToImageRecognition(context),
+        //   child: const Text('前往影像辨識'),
+        // ),
+         child: ElevatedButton(
+          onPressed: () => _goToMapPage(context),
+          child: const Text('前往地圖'),
         ),
+
       ),
+
     );
   }
 }

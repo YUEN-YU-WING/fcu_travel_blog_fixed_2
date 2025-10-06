@@ -13,6 +13,7 @@ import 'ai_upload_page.dart';
 import 'article_interactive_editor.dart';
 import 'test_photo_page.dart';
 import 'markdown_editor.dart';
+import 'MapPage.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -55,9 +56,10 @@ class _BackendHomePageState extends State<BackendHomePage> {
     ProfilePage(),
     SettingsPage(),
     ArticleInteractiveEditor(),
-    MarkDownEditorPage(),
+    EditArticlePage(),
     MyArticlesPage(),
     AlbumFolderPage(),
+    MapPage(),
     // 你可以繼續新增其他功能頁，例如 SettingsPage(), UserManagementPage() ...
   ];
 
@@ -92,7 +94,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
                   onTap: () => setState(() => _selectedIndex = 1),
                 ),
                 ListTile(
-                  leading: Icon(Icons.edit, color: Colors.white),
+                  leading: Icon(Icons.auto_awesome, color: Colors.white),
                   title: Text('AI協助編輯', style: TextStyle(color: Colors.white)),
                   selected: _selectedIndex == 2,
                   selectedTileColor: Colors.blueGrey[700],
@@ -118,6 +120,13 @@ class _BackendHomePageState extends State<BackendHomePage> {
                   selected: _selectedIndex == 5,
                   selectedTileColor: Colors.blueGrey[700],
                   onTap: () => setState(() => _selectedIndex = 5),
+                ),
+                ListTile(
+                  leading: Icon(Icons.map, color: Colors.white),
+                  title: Text('地圖', style: TextStyle(color: Colors.white)),
+                  selected: _selectedIndex == 6,
+                  selectedTileColor: Colors.blueGrey[700],
+                  onTap: () => setState(() => _selectedIndex = 6),
                 ),
               ],
             ),

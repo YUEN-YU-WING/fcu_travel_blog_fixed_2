@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:markdown_editor_plus/markdown_editor_plus.dart';
 
 class EditArticlePage extends StatefulWidget {
   final String? articleId;
@@ -14,7 +15,6 @@ class EditArticlePage extends StatefulWidget {
     this.initialContent,
   });
 
-  // 新增一個 fromRouteArguments 工廠
   static EditArticlePage fromRouteArguments(BuildContext context) {
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>? ?? {};
     return EditArticlePage(
@@ -85,7 +85,6 @@ class _EditArticlePageState extends State<EditArticlePage> {
 
     try {
       if (widget.articleId == null) {
-        // 新增
         await FirebaseFirestore.instance.collection('articles').add({
           'title': title,
           'content': content,
@@ -93,7 +92,6 @@ class _EditArticlePageState extends State<EditArticlePage> {
           'createdAt': FieldValue.serverTimestamp(),
         });
       } else {
-        // 編輯
         await FirebaseFirestore.instance.collection('articles').doc(widget.articleId).update({
           'title': title,
           'content': content,
@@ -103,7 +101,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('儲存成功！')),
       );
-      Navigator.pop(context, true); // 返回並帶回成功訊息
+      Navigator.pop(context, true);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('儲存失敗: $e')),
@@ -141,15 +139,17 @@ class _EditArticlePageState extends State<EditArticlePage> {
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: TextField(
+              child: MarkdownAutoPreview(
                 controller: _contentController,
+                enableToolBar: true, // 顯示工具列
+                minLines: 15,
+                emojiConvert: true,
+                autoCloseAfterSelectEmoji: true,
                 decoration: const InputDecoration(
                   labelText: '內容',
                   border: OutlineInputBorder(),
+                  hintText: '請輸入Markdown內容...',
                 ),
-                keyboardType: TextInputType.multiline,
-                maxLines: null,
-                expands: true,
               ),
             ),
           ],
