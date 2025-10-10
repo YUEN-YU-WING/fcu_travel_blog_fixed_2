@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:markdown_editor_plus/markdown_editor_plus.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'map_picker_page.dart'; // 引入地圖選擇頁面
+import 'package:google_maps_flutter/google_maps_flutter.dart'; // 需要這個
 
 class EditArticlePage extends StatefulWidget {
   final String? articleId;
@@ -160,7 +161,18 @@ class _EditArticlePageState extends State<EditArticlePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.location_on),
-            onPressed: _pickLocation,
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MapPickerPage()), // 這裡應該導航到地圖選擇頁，不是MapPickerPage本身
+              );
+              if (result != null && result is Map<String, dynamic>) {
+                setState(() {
+                  _selectedLocation = result['location'] as LatLng;
+                  _selectedAddress = result['address'] as String;
+                });
+              }
+            },
             tooltip: '選擇地點',
           ),
           IconButton(

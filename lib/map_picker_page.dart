@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:flutter/foundation.dart' show kIsWeb; // 引入 kIsWeb
-import 'package:http/http.dart' as http; // 引入 http 套件
-import 'dart:convert'; // 引入 JSON 解析
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart'; // 引入 Firestore
+import 'package:firebase_auth/firebase_auth.dart'; // 引入 FirebaseAuth
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // 引入 dotenv (如果你使用方案一)
+
+// 假設你的 EditArticlePage 位於 'edit_article_page.dart'
+import 'edit_article_page.dart';
+// 假設你有一個 ArticleDetailPage 用於顯示遊記詳情
+import 'my_articles_page.dart'; // 如果有，請取消註解
 
 class MapPickerPage extends StatefulWidget {
   const MapPickerPage({super.key});
@@ -15,50 +22,110 @@ class MapPickerPage extends StatefulWidget {
 
 class _MapPickerPageState extends State<MapPickerPage> {
   GoogleMapController? mapController;
-  LatLng? _selectedLocation;
-  String? _selectedAddress;
+  LatLng? _selectedLocation; // 用於新增遊記時的地點
+  String? _selectedAddress; // 用於新增遊記時的地址
   final TextEditingController _searchController = TextEditingController();
-  Set<Marker> _markers = {};
+  Set<Marker> _markers = {}; // 所有地圖上的標記，包括選定地點和遊記
+
+  List<Map<String, dynamic>> _articles = []; // 儲存從 Firebase 載入的遊記
+
+  // ❗ 替換為你的 Web API Key，或從 dotenv 加載
+  final String _googleMapsApiKey = kIsWeb ? dotenv.env['GOOGLE_MAPS_WEB_API_KEY']! : "";
 
   static const LatLng _initialCameraPosition = LatLng(23.6937, 120.8906);
-
-  // ❗ 替換為你的 Web API Key，這個 Key 需要啟用 Geocoding API
-  // 為了安全，在生產環境中不應該直接寫死在程式碼中，可以考慮環境變數或 Firebase Config
-  final String _googleMapsApiKey = dotenv.env['GOOGLE_MAPS_WEB_API_KEY']!;
 
   @override
   void initState() {
     super.initState();
-    _selectedLocation = _initialCameraPosition;
-    _addMarker(_initialCameraPosition);
-    _getAddressFromLatLng(_initialCameraPosition);
+    // _selectedLocation = _initialCameraPosition;
+    // _addMarker(_initialCameraPosition);
+    // _getAddressFromLatLng(_initialCameraPosition);
+    _loadArticles(); // 載入遊記
   }
 
   void _onMapCreated(GoogleMapController controller) {
     mapController = controller;
+    _updateMarkers(); // 在地圖創建後更新所有標記
   }
 
   void _onTap(LatLng latLng) {
     setState(() {
       _selectedLocation = latLng;
-      _markers.clear();
-      _addMarker(latLng);
+      // 點擊地圖時只更新選定位置的標記，保留遊記標記
+      _updateMarkers(newSelectedLocation: latLng);
     });
     _getAddressFromLatLng(latLng);
   }
 
-  void _addMarker(LatLng latLng) {
+  void _addMarker(LatLng latLng, {String? markerId, String? title, String? snippet, Function? onTapCallback}) {
     _markers.add(
       Marker(
-        markerId: const MarkerId('selected_location'),
+        markerId: MarkerId(markerId ?? 'selected_location'),
         position: latLng,
-        infoWindow: const InfoWindow(title: '選取的位置'),
+        infoWindow: InfoWindow(
+          title: title ?? '選取的位置',
+          snippet: snippet,
+          onTap: onTapCallback != null ? () => onTapCallback() : null,
+        ),
+        icon: onTapCallback != null ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange) : BitmapDescriptor.defaultMarker, // 遊記用橘色標記
       ),
     );
   }
 
+  // 重新整理所有標記
+  void _updateMarkers({LatLng? newSelectedLocation}) {
+    _markers.clear();
+    // 添加所有遊記標記
+    for (var article in _articles) {
+      final GeoPoint geoPoint = article['location'];
+      _addMarker(
+        LatLng(geoPoint.latitude, geoPoint.longitude),
+        markerId: article['id'],
+        title: article['title'],
+        snippet: article['address'] ?? '點擊查看詳情',
+        onTapCallback: () {
+          // 點擊遊記標記時導航到遊記詳情頁面
+          // Navigator.push(
+          //   context,
+          //   MaterialPageRoute(builder: (context) => ArticleDetailPage(articleId: article['id'])),
+          // );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('點擊了遊記: ${article['title']}')),
+          );
+        },
+      );
+    }
+    // 添加當前選定地點的標記
+    if (newSelectedLocation != null) {
+      _addMarker(newSelectedLocation);
+    } else if (_selectedLocation != null) {
+      _addMarker(_selectedLocation!);
+    }
+    setState(() {}); // 更新 UI
+  }
+
+  // 從 Firestore 載入遊記
+  Future<void> _loadArticles() async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance.collection('articles').get();
+      setState(() {
+        _articles = querySnapshot.docs.map((doc) => {
+          ...doc.data(),
+          'id': doc.id, // 將 document ID 也儲存起來
+        }).toList();
+        _updateMarkers(); // 載入後更新地圖上的標記
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('載入遊記失敗: $e')),
+      );
+      print("Error loading articles: $e");
+    }
+  }
+
   // --- Web 平台專用的反向地理編碼 ---
   Future<String> _getWebAddressFromLatLng(LatLng latLng) async {
+    // ... (保持不變，與上次提供的程式碼相同) ...
     final String url =
         "https://maps.googleapis.com/maps/api/geocode/json?latlng=${latLng.latitude},${latLng.longitude}&key=$_googleMapsApiKey&language=zh-TW";
     try {
@@ -66,18 +133,14 @@ class _MapPickerPageState extends State<MapPickerPage> {
       if (response.statusCode == 200) {
         final jsonResponse = json.decode(response.body);
         if (jsonResponse['status'] == 'OK' && jsonResponse['results'].isNotEmpty) {
-          // 返回格式化的地址
           return jsonResponse['results'][0]['formatted_address'] ?? '無法找到地址';
         } else {
-          // 如果 API 返回 OK 但沒有結果，或者狀態不是 OK
           return '無法找到地址資訊: ${jsonResponse['status']}';
         }
       } else {
-        // HTTP 請求失敗
         return '獲取地址失敗 (HTTP ${response.statusCode})';
       }
     } catch (e) {
-      // 捕獲網絡或其他錯誤
       print("Error in _getWebAddressFromLatLng: $e");
       return '獲取地址時發生錯誤: $e';
     }
@@ -85,6 +148,7 @@ class _MapPickerPageState extends State<MapPickerPage> {
 
   // --- Web 平台專用的地理編碼 (搜尋地點) ---
   Future<List<LatLng>> _getWebLatLngFromAddress(String address) async {
+    // ... (保持不變，與上次提供的程式碼相同) ...
     final String url =
         "https://maps.googleapis.com/maps/api/geocode/json?address=${Uri.encodeComponent(address)}&key=$_googleMapsApiKey&language=zh-TW";
     try {
@@ -108,7 +172,6 @@ class _MapPickerPageState extends State<MapPickerPage> {
     }
   }
 
-
   // --- 判斷平台，調用不同地理編碼邏輯 ---
   Future<void> _getAddressFromLatLng(LatLng latLng) async {
     String addressResult;
@@ -129,7 +192,7 @@ class _MapPickerPageState extends State<MapPickerPage> {
           if (place.subThoroughfare != null && place.subThoroughfare!.isNotEmpty) addressParts.add(place.subThoroughfare!);
           if (place.name != null && place.name!.isNotEmpty) {
             String combinedParts = addressParts.join('');
-            if (!combinedParts.contains(place.name!)) { // 避免重複
+            if (!combinedParts.contains(place.name!)) {
               addressParts.add(place.name!);
             }
           }
@@ -182,12 +245,54 @@ class _MapPickerPageState extends State<MapPickerPage> {
     }
   }
 
+
+  Future<void> _createNewArticle() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請先登入才能新增遊記')),
+      );
+      return;
+    }
+    if (_selectedLocation == null || _selectedAddress == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請先在地圖上選擇一個地點')),
+      );
+      return;
+    }
+
+    // 導航到 EditArticlePage，並傳遞選定地點和地址
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditArticlePage(
+          initialLocation: _selectedLocation,
+          initialAddress: _selectedAddress,
+        ),
+      ),
+    );
+
+    // 如果 EditArticlePage 儲存成功並返回 true，則重新載入遊記
+    if (result == true) {
+      _loadArticles();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 檢查用戶登入狀態，以決定是否顯示「新增遊記」按鈕
+    final bool isLoggedIn = FirebaseAuth.instance.currentUser != null;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('選擇地點'),
+        title: const Text('選擇地點與查看遊記'),
         actions: [
+          if (isLoggedIn && _selectedLocation != null) // 登入狀態下且選取地點後才顯示
+            IconButton(
+              icon: const Icon(Icons.add_location_alt),
+              onPressed: _createNewArticle,
+              tooltip: '新增遊記',
+            ),
           IconButton(
             icon: const Icon(Icons.check),
             onPressed: () {
@@ -202,7 +307,7 @@ class _MapPickerPageState extends State<MapPickerPage> {
                 );
               }
             },
-            tooltip: '確認',
+            tooltip: '確認選取地點',
           ),
         ],
       ),
