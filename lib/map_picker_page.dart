@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http; // 引入 http 套件
 import 'dart:convert'; // 引入 JSON 解析
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+
 class MapPickerPage extends StatefulWidget {
   const MapPickerPage({super.key});
 
@@ -20,7 +21,10 @@ class _MapPickerPageState extends State<MapPickerPage> {
   final TextEditingController _searchController = TextEditingController();
   Set<Marker> _markers = {};
 
-  static const LatLng _initialCameraPosition = LatLng(23.6937, 120.8906);
+  List<dynamic> _placeSuggestions = []; // 用於儲存自動完成建議
+  String? _sessionToken; // 用於 Places Autocomplete 會話，避免重複計費
+
+  static const LatLng _initialCameraPosition = LatLng(24.1792, 120.6466);
 
   // ❗ 替換為你的 Web API Key，這個 Key 需要啟用 Geocoding API
   // 為了安全，在生產環境中不應該直接寫死在程式碼中，可以考慮環境變數或 Firebase Config
@@ -32,7 +36,135 @@ class _MapPickerPageState extends State<MapPickerPage> {
     _selectedLocation = _initialCameraPosition;
     _addMarker(_initialCameraPosition);
     _getAddressFromLatLng(_initialCameraPosition);
+    _searchController.addListener(_onSearchChanged); // 監聽搜尋框變化
+    _startNewSessionToken(); // 初始化會話 token
   }
+
+  void _startNewSessionToken() {
+    // 為每個新的地點搜尋會話生成一個新的 token
+    // 這有助於 Google Maps API 正確計費
+    _sessionToken = DateTime.now().millisecondsSinceEpoch.toString();
+  }
+
+  void _onSearchChanged() {
+    if (_searchController.text.isNotEmpty) {
+      _getPlaceAutocompleteSuggestions(_searchController.text);
+    } else {
+      setState(() {
+        _placeSuggestions.clear();
+      });
+    }
+  }
+
+  // 獲取地點自動完成建議
+  Future<void> _getPlaceAutocompleteSuggestions(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _placeSuggestions.clear();
+      });
+      return;
+    }
+
+    final String url =
+        "https://maps.googleapis.com/maps/api/place/autocomplete/json?"
+        "input=${Uri.encodeComponent(query)}&"
+        "key=$_googleMapsApiKey&"
+        "language=zh-TW&"
+        "sessiontoken=$_sessionToken"; // 使用會話 token
+
+    // ... 在 _getPlaceAutocompleteSuggestions 函式中 ...
+    try {
+      final response = await http.get(Uri.parse(url));
+      print('HTTP Response Status: ${response.statusCode}'); // 打印狀態碼
+      print('HTTP Response Headers: ${response.headers}'); // 打印響應頭
+      print('HTTP Response Body Length: ${response.bodyBytes.length}'); // 打印響應體長度
+
+      if (response.statusCode == 200) {
+        // 再次嘗試打印原始響應，看是否真的完整到達
+        print('Raw response body for autocomplete: ${response.body}');
+
+        // 嘗試在解析前檢查響應體是否為空或無效
+        if (response.body.isEmpty) {
+          print('Warning: Autocomplete API returned empty body despite 200 OK.');
+          setState(() { _placeSuggestions.clear(); });
+          return;
+        }
+
+        final jsonResponse = json.decode(response.body);
+        print('Parsed Autocomplete JSON: $jsonResponse'); // 打印解析後的 JSON
+        if (jsonResponse['status'] == 'OK') {
+          setState(() {
+            _placeSuggestions = jsonResponse['predictions'];
+          });
+        } else {
+          print("Places Autocomplete API Status Error: ${jsonResponse['status']}");
+          setState(() { _placeSuggestions.clear(); });
+        }
+      } else {
+        print("HTTP Error for Autocomplete (Non-200): ${response.statusCode}");
+        print("Error response body: ${response.body}"); // 打印非200的響應體
+        setState(() { _placeSuggestions.clear(); });
+      }
+    } catch (e) {
+      print("Unhandled exception in _getPlaceAutocompleteSuggestions: $e");
+      setState(() { _placeSuggestions.clear(); });
+    }
+  }
+
+  // 當用戶選擇一個建議後，獲取該地點的詳細資訊
+  Future<void> _getPlaceDetails(String placeId) async {
+    final String url =
+        "https://maps.googleapis.com/maps/api/place/details/json?"
+        "place_id=$placeId&"
+        "key=$_googleMapsApiKey&"
+        "language=zh-TW&"
+        "sessiontoken=$_sessionToken"; // 再次使用會話 token
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        if (jsonResponse['status'] == 'OK' && jsonResponse['result'] != null) {
+          final result = jsonResponse['result'];
+          final lat = result['geometry']['location']['lat'];
+          final lng = result['geometry']['location']['lng'];
+          final formattedAddress = result['formatted_address'];
+
+          final LatLng newLocation = LatLng(lat, lng);
+          setState(() {
+            _selectedLocation = newLocation;
+            _selectedAddress = formattedAddress;
+            _markers.clear();
+            _addMarker(newLocation);
+            _placeSuggestions.clear(); // 清空建議列表
+            _searchController.text = formattedAddress; // 更新搜尋框顯示
+            _startNewSessionToken(); // 開始新的會話
+          });
+          mapController?.animateCamera(CameraUpdate.newLatLng(newLocation));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('獲取地點詳情失敗: ${jsonResponse['status']}')),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('獲取地點詳情 HTTP 錯誤: ${response.statusCode}')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('獲取地點詳情時發生錯誤: $e')),
+      );
+    }
+  }
+
+  // @override
+  // void initState() {
+  //   super.initState();
+  //   _selectedLocation = _initialCameraPosition;
+  //   _addMarker(_initialCameraPosition);
+  //   _getAddressFromLatLng(_initialCameraPosition);
+  // }
 
   void _onMapCreated(GoogleMapController controller) {
     mapController = controller;
@@ -210,27 +342,35 @@ class _MapPickerPageState extends State<MapPickerPage> {
         children: [
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: const InputDecoration(
-                      hintText: '搜尋地點',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10),
-                    ),
-                    onSubmitted: (_) => _searchLocation(),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: _searchLocation,
-                ),
-              ],
+            child: TextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                hintText: '搜尋地點或地址', // 修改提示文字
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(horizontal: 10),
+              ),
+              // onSubmitted: (_) => _searchLocation(), // 不再直接調用 searchLocation
             ),
           ),
-          if (_selectedAddress != null)
+          // 顯示自動完成建議列表
+          if (_placeSuggestions.isNotEmpty)
+            Expanded(
+              child: ListView.builder(
+                itemCount: _placeSuggestions.length,
+                itemBuilder: (context, index) {
+                  final suggestion = _placeSuggestions[index];
+                  return ListTile(
+                    title: Text(suggestion['description']),
+                    onTap: () {
+                      // 當用戶點擊建議時
+                      _getPlaceDetails(suggestion['place_id']);
+                    },
+                  );
+                },
+              ),
+            ),
+          // ... 原來的選取地址顯示 ...
+          if (_selectedAddress != null && _placeSuggestions.isEmpty) // 當沒有建議時才顯示地圖
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
               child: Text(
@@ -238,20 +378,22 @@ class _MapPickerPageState extends State<MapPickerPage> {
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
             ),
-          Expanded(
-            child: GoogleMap(
-              onMapCreated: _onMapCreated,
-              initialCameraPosition: const CameraPosition(
-                target: _initialCameraPosition,
-                zoom: 8.0,
+          // 地圖只有在沒有建議時才顯示，避免遮擋
+          if (_placeSuggestions.isEmpty)
+            Expanded(
+              child: GoogleMap(
+                onMapCreated: _onMapCreated,
+                initialCameraPosition: const CameraPosition(
+                  target: _initialCameraPosition,
+                  zoom: 8.0,
+                ),
+                onTap: _onTap,
+                markers: _markers,
+                mapType: MapType.normal,
+                myLocationEnabled: true,
+                myLocationButtonEnabled: true,
               ),
-              onTap: _onTap,
-              markers: _markers,
-              mapType: MapType.normal,
-              myLocationEnabled: true,
-              myLocationButtonEnabled: true,
             ),
-          ),
         ],
       ),
     );
