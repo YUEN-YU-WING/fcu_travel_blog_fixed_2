@@ -10,11 +10,13 @@ import 'album_folder_page.dart';
 import 'MapPage.dart';
 import 'PlaceSearchPage.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart'; // ✅ 加入 LatLng
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // 引入 dotenv
 
 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env"); // 加載 .env 文件
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );

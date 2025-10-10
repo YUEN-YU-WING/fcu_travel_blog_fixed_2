@@ -2,17 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:markdown_editor_plus/markdown_editor_plus.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'map_picker_page.dart'; // 引入地圖選擇頁面
 
 class EditArticlePage extends StatefulWidget {
   final String? articleId;
   final String? initialTitle;
   final String? initialContent;
+  final LatLng? initialLocation; // 讓地點可以是可選的
+  final String? initialAddress; // 新增地址欄位
 
   const EditArticlePage({
     super.key,
     this.articleId,
     this.initialTitle,
     this.initialContent,
+    this.initialLocation,
+    this.initialAddress,
   });
 
   static EditArticlePage fromRouteArguments(BuildContext context) {
@@ -21,6 +27,8 @@ class EditArticlePage extends StatefulWidget {
       articleId: args['articleId'] as String?,
       initialTitle: args['initialTitle'] as String?,
       initialContent: args['initialContent'] as String?,
+      initialLocation: args['location'] as LatLng?, // 從args讀取
+      initialAddress: args['address'] as String?, // 從args讀取
     );
   }
 
@@ -31,6 +39,8 @@ class EditArticlePage extends StatefulWidget {
 class _EditArticlePageState extends State<EditArticlePage> {
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
+  LatLng? _selectedLocation; // 用於儲存選取的地點
+  String? _selectedAddress; // 用於儲存選取的地址
   bool _isLoading = false;
 
   @override
@@ -38,7 +48,10 @@ class _EditArticlePageState extends State<EditArticlePage> {
     super.initState();
     _titleController = TextEditingController(text: widget.initialTitle ?? '');
     _contentController = TextEditingController(text: widget.initialContent ?? '');
-    if (widget.articleId != null && (widget.initialTitle == null || widget.initialContent == null)) {
+    _selectedLocation = widget.initialLocation;
+    _selectedAddress = widget.initialAddress;
+
+    if (widget.articleId != null && (widget.initialTitle == null || widget.initialContent == null || widget.initialLocation == null)) {
       _fetchArticle();
     }
   }
@@ -54,6 +67,11 @@ class _EditArticlePageState extends State<EditArticlePage> {
         final data = doc.data();
         _titleController.text = data?['title'] ?? '';
         _contentController.text = data?['content'] ?? '';
+        if (data?['location'] != null) {
+          final GeoPoint geoPoint = data!['location'];
+          _selectedLocation = LatLng(geoPoint.latitude, geoPoint.longitude);
+        }
+        _selectedAddress = data?['address'] ?? '';
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -80,23 +98,32 @@ class _EditArticlePageState extends State<EditArticlePage> {
       );
       return;
     }
+    if (_selectedLocation == null) { // 要求用戶選擇地點
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請選擇一個地點')),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
     try {
+      final dataToSave = {
+        'title': title,
+        'content': content,
+        'location': GeoPoint(_selectedLocation!.latitude, _selectedLocation!.longitude), // 保存為 GeoPoint
+        'address': _selectedAddress,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
       if (widget.articleId == null) {
         await FirebaseFirestore.instance.collection('articles').add({
-          'title': title,
-          'content': content,
+          ...dataToSave,
           'authorUid': user.uid,
           'createdAt': FieldValue.serverTimestamp(),
         });
       } else {
-        await FirebaseFirestore.instance.collection('articles').doc(widget.articleId).update({
-          'title': title,
-          'content': content,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+        await FirebaseFirestore.instance.collection('articles').doc(widget.articleId).update(dataToSave);
       }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('儲存成功！')),
@@ -111,12 +138,31 @@ class _EditArticlePageState extends State<EditArticlePage> {
     }
   }
 
+  Future<void> _pickLocation() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const MapPickerPage()),
+    );
+
+    if (result != null && result is Map<String, dynamic>) {
+      setState(() {
+        _selectedLocation = result['location'] as LatLng;
+        _selectedAddress = result['address'] as String;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.articleId == null ? '新增文章' : '編輯文章'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.location_on),
+            onPressed: _pickLocation,
+            tooltip: '選擇地點',
+          ),
           IconButton(
             icon: const Icon(Icons.save),
             onPressed: _isLoading ? null : _saveArticle,
@@ -138,10 +184,27 @@ class _EditArticlePageState extends State<EditArticlePage> {
               ),
             ),
             const SizedBox(height: 16),
+            if (_selectedAddress != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: Row(
+                  children: [
+                    const Icon(Icons.location_pin, color: Colors.blueGrey),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _selectedAddress!,
+                        style: const TextStyle(fontSize: 16),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
               child: MarkdownAutoPreview(
                 controller: _contentController,
-                enableToolBar: true, // 顯示工具列
+                enableToolBar: true,
                 minLines: 15,
                 emojiConvert: true,
                 autoCloseAfterSelectEmoji: true,
