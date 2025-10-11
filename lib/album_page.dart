@@ -3,11 +3,20 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // 引入圖片緩存套件
 
 class AlbumPage extends StatefulWidget {
   final String albumId;
   final String albumName;
-  const AlbumPage({super.key, required this.albumId, required this.albumName});
+  final bool isPickingImage; // 新增：是否處於圖片選擇模式
+
+  const AlbumPage({
+    super.key,
+    required this.albumId,
+    required this.albumName,
+    this.isPickingImage = false, // 預設為 false，即非圖片選擇模式
+  });
+
   @override
   State<AlbumPage> createState() => _AlbumPageState();
 }
@@ -40,10 +49,10 @@ class _AlbumPageState extends State<AlbumPage> {
       final uploadTask = await storageRef.putData(bytes); // 取代 putFile
       final downloadUrl = await uploadTask.ref.getDownloadURL();
 
-      // 寫入 Firestore，存 storagePath 而非 url
+      // 寫入 Firestore
       await FirebaseFirestore.instance.collection('photos').add({
         'storagePath': storagePath,
-        'url': downloadUrl, // 仍可存 downloadUrl 供前端快取用（可選）
+        'url': downloadUrl,
         'ownerUid': user.uid,
         'uploadedAt': FieldValue.serverTimestamp(),
         'fileName': fileName,
@@ -107,11 +116,14 @@ class _AlbumPageState extends State<AlbumPage> {
   }
 
   Future<void> _updateAlbumCoverAfterDelete() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
     final albumRef = FirebaseFirestore.instance.collection('albums').doc(widget.albumId);
     final latestPhoto = await FirebaseFirestore.instance
         .collection('photos')
         .where('albumId', isEqualTo: widget.albumId)
-        .where('ownerUid', isEqualTo: FirebaseAuth.instance.currentUser!.uid)
+        .where('ownerUid', isEqualTo: user.uid)
         .orderBy('uploadedAt', descending: true)
         .limit(1)
         .get();
@@ -120,7 +132,6 @@ class _AlbumPageState extends State<AlbumPage> {
       // 沒有照片了，封面設為 null
       await albumRef.update({'coverUrl': null});
     } else {
-      // 封面仍用 downloadUrl（可改成 storagePath 並於前端取得 downloadUrl）
       final url = latestPhoto.docs.first['url'] as String?;
       await albumRef.update({'coverUrl': url});
     }
@@ -150,53 +161,56 @@ class _AlbumPageState extends State<AlbumPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.albumName),
+        title: Text(widget.isPickingImage ? '選擇圖片' : widget.albumName), // 根據模式顯示不同標題
         actions: [
-          StreamBuilder<QuerySnapshot>(
-            stream: photosStream,
-            builder: (context, snapshot) {
-              final docs = snapshot.data?.docs ?? [];
-              final allSelected = _selectedPhotoIds.length == docs.length && docs.isNotEmpty;
-              return Row(
-                children: [
-                  if (_selectedPhotoIds.isNotEmpty)
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      tooltip: '刪除選取照片',
-                      onPressed: () async {
-                        final isConfirm = await showDialog<bool>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('刪除照片'),
-                            content: Text('確定要刪除選取的${_selectedPhotoIds.length}張照片嗎？'),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('刪除')),
-                            ],
-                          ),
-                        );
-                        if (isConfirm == true) {
-                          await _deleteSelectedPhotos(docs);
-                        }
-                      },
-                    ),
-                  Checkbox(
-                    value: allSelected,
-                    onChanged: (checked) {
-                      setState(() {
-                        if (checked == true) {
-                          _selectedPhotoIds = docs.map((doc) => doc.id).toSet();
-                        } else {
-                          _selectedPhotoIds.clear();
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                ],
-              );
-            },
-          ),
+          if (!widget.isPickingImage) // 只有在非選擇模式下才顯示這些操作
+            StreamBuilder<QuerySnapshot>(
+              stream: photosStream,
+              builder: (context, snapshot) {
+                final docs = snapshot.data?.docs ?? [];
+                final allSelected = _selectedPhotoIds.length == docs.length && docs.isNotEmpty;
+                return Row(
+                  children: [
+                    if (_selectedPhotoIds.isNotEmpty)
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        tooltip: '刪除選取照片',
+                        onPressed: () async {
+                          final isConfirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('刪除照片'),
+                              content: Text('確定要刪除選取的${_selectedPhotoIds.length}張照片嗎？'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                                TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('刪除')),
+                              ],
+                            ),
+                          );
+                          if (isConfirm == true) {
+                            await _deleteSelectedPhotos(docs);
+                          }
+                        },
+                      ),
+                    // 只有在非選擇模式下才顯示全選Checkbox
+                    if (docs.isNotEmpty) // 只有有照片時才顯示全選
+                      Checkbox(
+                        value: allSelected,
+                        onChanged: (checked) {
+                          setState(() {
+                            if (checked == true) {
+                              _selectedPhotoIds = docs.map((doc) => doc.id).toSet();
+                            } else {
+                              _selectedPhotoIds.clear();
+                            }
+                          });
+                        },
+                      ),
+                    const SizedBox(width: 8),
+                  ],
+                );
+              },
+            ),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -207,7 +221,7 @@ class _AlbumPageState extends State<AlbumPage> {
           }
           final docs = snapshot.data?.docs ?? [];
           if (docs.isEmpty) {
-            return const Center(child: Text('此相簿尚未上傳任何照片'));
+            return Center(child: Text(widget.isPickingImage ? '此相簿沒有可選的照片' : '此相簿尚未上傳任何照片'));
           }
           return GridView.builder(
             padding: const EdgeInsets.all(12),
@@ -222,6 +236,7 @@ class _AlbumPageState extends State<AlbumPage> {
               final data = doc.data() as Map<String, dynamic>? ?? {};
               final storagePath = data['storagePath'] as String?;
               final urlFromDB = data['url'] as String?;
+              final fileName = data['fileName'] as String?; // 獲取檔案名
               final isSelected = _selectedPhotoIds.contains(doc.id);
 
               return FutureBuilder<String?>(
@@ -234,7 +249,9 @@ class _AlbumPageState extends State<AlbumPage> {
                   if (imageUrl == null) return const SizedBox();
 
                   return GestureDetector(
-                    onLongPress: () {
+                    onLongPress: widget.isPickingImage // 圖片選擇模式下禁用長按
+                        ? null
+                        : () {
                       setState(() {
                         if (isSelected) {
                           _selectedPhotoIds.remove(doc.id);
@@ -244,7 +261,14 @@ class _AlbumPageState extends State<AlbumPage> {
                       });
                     },
                     onTap: () {
-                      if (_selectedPhotoIds.isNotEmpty) {
+                      if (widget.isPickingImage) {
+                        // 如果是圖片選擇模式，點擊圖片就返回其 URL 和 fileName
+                        Navigator.pop(context, {
+                          'imageUrl': imageUrl,
+                          'fileName': fileName,
+                        });
+                      } else if (_selectedPhotoIds.isNotEmpty) {
+                        // 如果是非選擇模式且有選取，點擊切換選取狀態
                         setState(() {
                           if (isSelected) {
                             _selectedPhotoIds.remove(doc.id);
@@ -253,14 +277,19 @@ class _AlbumPageState extends State<AlbumPage> {
                           }
                         });
                       } else {
-                        // 預覽
+                        // 非選擇模式且未選取，顯示大圖預覽
                         showDialog(
                           context: context,
                           builder: (ctx) => Dialog(
                             child: GestureDetector(
                               onTap: () => Navigator.pop(ctx),
                               child: InteractiveViewer(
-                                child: Image.network(imageUrl, fit: BoxFit.contain),
+                                child: CachedNetworkImage( // 使用 CachedNetworkImage
+                                  imageUrl: imageUrl,
+                                  fit: BoxFit.contain,
+                                  placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                                  errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                                ),
                               ),
                             ),
                           ),
@@ -280,34 +309,36 @@ class _AlbumPageState extends State<AlbumPage> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             clipBehavior: Clip.antiAlias,
-                            child: Image.network(
-                              imageUrl,
+                            child: CachedNetworkImage( // 使用 CachedNetworkImage
+                              imageUrl: imageUrl,
                               fit: BoxFit.cover,
-                              loadingBuilder: (ctx, child, progress) =>
-                              progress == null ? child : const Center(child: CircularProgressIndicator()),
+                              placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                              errorWidget: (context, url, error) => const Icon(Icons.broken_image),
                             ),
                           ),
                         ),
-                        Positioned(
-                          left: 4,
-                          top: 4,
-                          child: Checkbox(
-                            value: isSelected,
-                            onChanged: (checked) {
-                              setState(() {
-                                if (checked == true) {
-                                  _selectedPhotoIds.add(doc.id);
-                                } else {
-                                  _selectedPhotoIds.remove(doc.id);
-                                }
-                              });
-                            },
-                            shape: const CircleBorder(),
-                            side: const BorderSide(width: 1, color: Colors.grey),
-                            visualDensity: VisualDensity.compact,
-                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        // 只有在非圖片選擇模式且有照片時才顯示Checkbox
+                        if (!widget.isPickingImage && docs.isNotEmpty)
+                          Positioned(
+                            left: 4,
+                            top: 4,
+                            child: Checkbox(
+                              value: isSelected,
+                              onChanged: (checked) {
+                                setState(() {
+                                  if (checked == true) {
+                                    _selectedPhotoIds.add(doc.id);
+                                  } else {
+                                    _selectedPhotoIds.remove(doc.id);
+                                  }
+                                });
+                              },
+                              shape: const CircleBorder(),
+                              side: const BorderSide(width: 1, color: Colors.grey),
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   );
@@ -317,7 +348,10 @@ class _AlbumPageState extends State<AlbumPage> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
+      // 只有在非圖片選擇模式下才顯示浮動按鈕
+      floatingActionButton: widget.isPickingImage
+          ? null
+          : FloatingActionButton(
         onPressed: _isUploading ? null : _pickAndUploadImage,
         tooltip: '新增照片',
         child: _isUploading

@@ -3,15 +3,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:markdown_editor_plus/markdown_editor_plus.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'map_picker_page.dart'; // 引入地圖選擇頁面
-import 'package:google_maps_flutter/google_maps_flutter.dart'; // 需要這個
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // 引入圖片緩存
+import 'map_picker_page.dart';
+import 'album_folder_page.dart';
 
 class EditArticlePage extends StatefulWidget {
   final String? articleId;
   final String? initialTitle;
   final String? initialContent;
-  final LatLng? initialLocation; // 讓地點可以是可選的
-  final String? initialAddress; // 新增地址欄位
+  final LatLng? initialLocation;
+  final String? initialAddress;
+  final String? initialPlaceName;
+  final String? initialThumbnailImageUrl;
+  final String? initialThumbnailFileName;
 
   const EditArticlePage({
     super.key,
@@ -20,6 +25,9 @@ class EditArticlePage extends StatefulWidget {
     this.initialContent,
     this.initialLocation,
     this.initialAddress,
+    this.initialPlaceName,
+    this.initialThumbnailImageUrl,
+    this.initialThumbnailFileName,
   });
 
   static EditArticlePage fromRouteArguments(BuildContext context) {
@@ -28,8 +36,11 @@ class EditArticlePage extends StatefulWidget {
       articleId: args['articleId'] as String?,
       initialTitle: args['initialTitle'] as String?,
       initialContent: args['initialContent'] as String?,
-      initialLocation: args['location'] as LatLng?, // 從args讀取
-      initialAddress: args['address'] as String?, // 從args讀取
+      initialLocation: args['location'] as LatLng?,
+      initialAddress: args['address'] as String?,
+      initialPlaceName: args['placeName'] as String?,
+      initialThumbnailImageUrl: args['thumbnailImageUrl'] as String?,
+      initialThumbnailFileName: args['thumbnailFileName'] as String?,
     );
   }
 
@@ -40,8 +51,13 @@ class EditArticlePage extends StatefulWidget {
 class _EditArticlePageState extends State<EditArticlePage> {
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
-  LatLng? _selectedLocation; // 用於儲存選取的地點
-  String? _selectedAddress; // 用於儲存選取的地址
+  late final TextEditingController _placeNameController;
+
+  LatLng? _selectedLocation;
+  String? _selectedAddress;
+  String? _thumbnailImageUrl;
+  String? _thumbnailFileName;
+
   bool _isLoading = false;
 
   @override
@@ -49,12 +65,28 @@ class _EditArticlePageState extends State<EditArticlePage> {
     super.initState();
     _titleController = TextEditingController(text: widget.initialTitle ?? '');
     _contentController = TextEditingController(text: widget.initialContent ?? '');
+    _placeNameController = TextEditingController(text: widget.initialPlaceName ?? '');
     _selectedLocation = widget.initialLocation;
     _selectedAddress = widget.initialAddress;
+    _thumbnailImageUrl = widget.initialThumbnailImageUrl;
+    _thumbnailFileName = widget.initialThumbnailFileName;
 
-    if (widget.articleId != null && (widget.initialTitle == null || widget.initialContent == null || widget.initialLocation == null)) {
+    if (widget.articleId != null &&
+        (widget.initialTitle == null ||
+            widget.initialContent == null ||
+            widget.initialLocation == null ||
+            widget.initialPlaceName == null ||
+            widget.initialThumbnailImageUrl == null)) {
       _fetchArticle();
     }
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    _placeNameController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchArticle() async {
@@ -68,11 +100,14 @@ class _EditArticlePageState extends State<EditArticlePage> {
         final data = doc.data();
         _titleController.text = data?['title'] ?? '';
         _contentController.text = data?['content'] ?? '';
+        _placeNameController.text = data?['placeName'] ?? '';
         if (data?['location'] != null) {
           final GeoPoint geoPoint = data!['location'];
           _selectedLocation = LatLng(geoPoint.latitude, geoPoint.longitude);
         }
         _selectedAddress = data?['address'] ?? '';
+        _thumbnailImageUrl = data?['thumbnailImageUrl'] ?? '';
+        _thumbnailFileName = data?['thumbnailFileName'] ?? '';
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -85,11 +120,12 @@ class _EditArticlePageState extends State<EditArticlePage> {
   Future<void> _saveArticle() async {
     final title = _titleController.text.trim();
     final content = _contentController.text.trim();
+    final placeName = _placeNameController.text.trim();
     final user = FirebaseAuth.instance.currentUser;
 
-    if (title.isEmpty || content.isEmpty) {
+    if (title.isEmpty || content.isEmpty || placeName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('標題和內容都不能為空')),
+        const SnackBar(content: Text('標題、內容和地標名稱都不能為空')),
       );
       return;
     }
@@ -99,9 +135,15 @@ class _EditArticlePageState extends State<EditArticlePage> {
       );
       return;
     }
-    if (_selectedLocation == null) { // 要求用戶選擇地點
+    if (_selectedLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('請選擇一個地點')),
+      );
+      return;
+    }
+    if (_thumbnailImageUrl == null || _thumbnailImageUrl!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請選擇一張圖片作為遊記縮圖')),
       );
       return;
     }
@@ -112,8 +154,11 @@ class _EditArticlePageState extends State<EditArticlePage> {
       final dataToSave = {
         'title': title,
         'content': content,
-        'location': GeoPoint(_selectedLocation!.latitude, _selectedLocation!.longitude), // 保存為 GeoPoint
+        'placeName': placeName,
+        'location': GeoPoint(_selectedLocation!.latitude, _selectedLocation!.longitude),
         'address': _selectedAddress,
+        'thumbnailImageUrl': _thumbnailImageUrl,
+        'thumbnailFileName': _thumbnailFileName,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -149,9 +194,40 @@ class _EditArticlePageState extends State<EditArticlePage> {
       setState(() {
         _selectedLocation = result['location'] as LatLng;
         _selectedAddress = result['address'] as String;
+        // 如果地標名稱未設定，可以嘗試從地址中提取一個部分作為預設值
+        if (_placeNameController.text.isEmpty && result['address'] != null) {
+          _placeNameController.text = (result['address'] as String).split(',').first.trim();
+        }
+        _placeNameController.text = result['placeName'] as String? ?? _placeNameController.text; // 優先使用返回的地標名稱
       });
     }
   }
+
+  Future<void> _pickThumbnail() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請先登入才能選擇圖片')),
+      );
+      return;
+    }
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AlbumFolderPage(isPickingImage: true),
+      ),
+    );
+
+    if (result != null && result is Map<String, dynamic>) {
+      setState(() {
+        _thumbnailImageUrl = result['imageUrl'] as String?;
+        _thumbnailFileName = result['fileName'] as String?;
+      });
+    }
+  }
+
+  // ... (接續上一個回應的 _EditArticlePageState class) ...
 
   @override
   Widget build(BuildContext context) {
@@ -161,19 +237,13 @@ class _EditArticlePageState extends State<EditArticlePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.location_on),
-            onPressed: () async {
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const MapPickerPage()), // 這裡應該導航到地圖選擇頁，不是MapPickerPage本身
-              );
-              if (result != null && result is Map<String, dynamic>) {
-                setState(() {
-                  _selectedLocation = result['location'] as LatLng;
-                  _selectedAddress = result['address'] as String;
-                });
-              }
-            },
-            tooltip: '選擇地點',
+            onPressed: _pickLocation,
+            tooltip: '重新選擇地點',
+          ),
+          IconButton(
+            icon: const Icon(Icons.photo),
+            onPressed: _pickThumbnail,
+            tooltip: '選擇遊記縮圖',
           ),
           IconButton(
             icon: const Icon(Icons.save),
@@ -184,7 +254,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
+          : SingleChildScrollView( // <-- 將 Column 包裹在 SingleChildScrollView 中
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
@@ -196,7 +266,16 @@ class _EditArticlePageState extends State<EditArticlePage> {
               ),
             ),
             const SizedBox(height: 16),
-            if (_selectedAddress != null)
+            TextField(
+              controller: _placeNameController,
+              decoration: const InputDecoration(
+                labelText: '地標名稱',
+                hintText: '例如：台北101',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_selectedAddress != null && _selectedAddress!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16.0),
                 child: Row(
@@ -213,11 +292,40 @@ class _EditArticlePageState extends State<EditArticlePage> {
                   ],
                 ),
               ),
-            Expanded(
+            if (_thumbnailImageUrl != null && _thumbnailImageUrl!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('選定縮圖:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8.0),
+                      child: CachedNetworkImage( // 使用 CachedNetworkImage
+                        imageUrl: _thumbnailImageUrl!,
+                        width: 100, // 顯示一個小預覽圖
+                        height: 100,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                        errorWidget: (context, url, error) =>
+                        const Icon(Icons.broken_image, size: 100),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // MarkdownAutoPreview 是一個 Expanded Widget，
+            // 當它在 SingleChildScrollView 內部時，通常會導致錯誤，
+            // 因為 SingleChildScrollView 的子 Widget 不能直接擴展。
+            // 這裡我們需要給它一個固定的高度，或者使用 Flexible/Expanded 包裹在一個具有高度的父級中。
+            // 為了方便滾動，我們直接給它一個較大的固定高度。
+            SizedBox(
+              height: 800, // 設定一個固定高度，讓內容可滾動
               child: MarkdownAutoPreview(
                 controller: _contentController,
                 enableToolBar: true,
-                minLines: 15,
+                minLines: 10, // 保持最小行數以控制編輯器大小
                 emojiConvert: true,
                 autoCloseAfterSelectEmoji: true,
                 decoration: const InputDecoration(
@@ -227,6 +335,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
                 ),
               ),
             ),
+            const SizedBox(height: 16), // 在內容下方添加一些間距
           ],
         ),
       ),

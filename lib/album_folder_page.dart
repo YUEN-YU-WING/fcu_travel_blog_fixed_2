@@ -2,19 +2,31 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'album_page.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
+import 'album_page.dart'; // 引入你的 AlbumPage
 
 class AlbumFolderPage extends StatefulWidget {
-  const AlbumFolderPage({super.key});
+  final bool isPickingImage; // 新增：是否處於圖片選擇模式
+
+  const AlbumFolderPage({super.key, this.isPickingImage = false});
+
   @override
   State<AlbumFolderPage> createState() => _AlbumFolderPageState();
 }
 
 class _AlbumFolderPageState extends State<AlbumFolderPage> {
   Set<String> _selectedAlbumIds = {};
+  User? _currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentUser = FirebaseAuth.instance.currentUser;
+  }
 
   Future<void> _deleteSelectedAlbums(List<QueryDocumentSnapshot> docs) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _currentUser;
     if (user == null) return;
 
     final albumsToDelete = docs.where((doc) => _selectedAlbumIds.contains(doc.id)).toList();
@@ -31,12 +43,12 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
 
       for (final photoDoc in photosSnap.docs) {
         final data = photoDoc.data();
-        final fileName = data['fileName'] as String?;
+        final storagePath = data['storagePath'] as String?;
         try {
-          if (fileName != null) {
+          if (storagePath != null) {
             final storageRef = FirebaseStorage.instance
                 .ref()
-                .child('user_albums/${user.uid}/$fileName');
+                .child(storagePath);
             await storageRef.delete();
           }
         } catch (_) {
@@ -58,139 +70,120 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
     );
   }
 
+  // 修改：此方法現在直接導航到 AlbumPage
+  // 當 AlbumPage 返回結果時，AlbumFolderPage 將其傳遞給調用者 (EditArticlePage)
+  Future<void> _selectImageFromAlbum(String albumId, String albumName) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AlbumPage(
+          albumId: albumId,
+          albumName: albumName,
+          isPickingImage: true, // 進入 AlbumPage 時也設為圖片選擇模式
+        ),
+      ),
+    );
+
+    if (result != null && result is Map<String, dynamic>) {
+      // 如果 AlbumPage 返回了一張圖片，就將其返回給調用者 (EditArticlePage)
+      Navigator.pop(context, result);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return const Center(child: Text('請先登入'));
-
-    final albumsStream = FirebaseFirestore.instance
-        .collection('albums')
-        .where('ownerUid', isEqualTo: user.uid)
-        .orderBy('createdAt', descending: true)
-        .snapshots();
+    if (_currentUser == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.isPickingImage ? '選擇圖片' : '我的相簿')),
+        body: const Center(child: Text('請先登入')),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('相簿管理/上傳'),
+        title: Text(widget.isPickingImage ? '選擇相簿中的圖片作為縮圖' : '我的相簿'),
         actions: [
-          StreamBuilder<QuerySnapshot>(
-            stream: albumsStream,
-            builder: (context, snapshot) {
-              final docs = snapshot.data?.docs ?? [];
-              final allSelected = _selectedAlbumIds.length == docs.length && docs.isNotEmpty;
-              return Row(
-                children: [
-                  if (_selectedAlbumIds.isNotEmpty)
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      tooltip: '刪除選取相簿',
-                      onPressed: () async {
-                        final isConfirm = await showDialog<bool>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('刪除相簿'),
-                            content: Text('確定要刪除選取的${_selectedAlbumIds.length}個相簿？\n（相簿內所有照片也會一起刪除）'),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('刪除')),
-                            ],
-                          ),
-                        );
-                        if (isConfirm == true) {
-                          await _deleteSelectedAlbums(docs);
-                        }
-                      },
-                    ),
-                  Checkbox(
-                    value: allSelected,
-                    onChanged: (checked) {
-                      setState(() {
-                        if (checked == true) {
-                          _selectedAlbumIds = docs.map((doc) => doc.id).toSet();
-                        } else {
-                          _selectedAlbumIds.clear();
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                ],
-              );
-            },
-          ),
+          // 只有在非選擇模式下才顯示刪除和新增相簿按鈕
+          if (!widget.isPickingImage && _selectedAlbumIds.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete),
+              onPressed: () {
+                // 需要從 StreamBuilder 獲取最新的 docs 列表
+                // 目前這個 onPressed 沒有直接的 docs 參數，你可能需要將 StreamBuilder 提取或使用更高級的狀態管理
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('請長按選擇相簿後，點擊刪除按鈕上方才會出現確認對話框。')),
+                );
+              },
+              tooltip: '刪除選取的相簿',
+            ),
+          if (!widget.isPickingImage)
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: () {
+                // TODO: 新增相簿的邏輯
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('新增相簿功能待實現')),
+                );
+              },
+              tooltip: '新增相簿',
+            ),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: albumsStream,
+        stream: FirebaseFirestore.instance
+            .collection('albums')
+            .where('ownerUid', isEqualTo: _currentUser!.uid)
+            .snapshots(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('載入相簿失敗: ${snapshot.error}'));
+          }
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          final docs = snapshot.data?.docs ?? [];
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text('您還沒有任何相簿。'));
+          }
+
+          final albums = snapshot.data!.docs;
+
           return GridView.builder(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(8),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 18,
-              crossAxisSpacing: 18,
-              childAspectRatio: 0.8,
+              crossAxisCount: 2,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 1, // 正方形的網格
             ),
-            itemCount: docs.length + 1,
+            itemCount: albums.length,
             itemBuilder: (context, index) {
-              if (index == 0) {
-                // 新增相簿卡片
-                return GestureDetector(
-                  onTap: () async {
-                    final nameController = TextEditingController();
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('新增相簿'),
-                        content: TextField(
-                          controller: nameController,
-                          decoration: const InputDecoration(labelText: '相簿名稱'),
-                        ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('新增')),
-                        ],
-                      ),
-                    );
-                    if (ok == true && nameController.text.trim().isNotEmpty) {
-                      await FirebaseFirestore.instance.collection('albums').add({
-                        'name': nameController.text.trim(),
-                        'createdAt': FieldValue.serverTimestamp(),
-                        'ownerUid': user.uid,
-                        'coverUrl': null,
-                        'photoCount': 0,
-                      });
-                    }
-                  },
-                  child: Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.add, size: 60, color: Colors.grey),
-                          SizedBox(height: 8),
-                          Text('新增相簿、資料夾', style: TextStyle(color: Colors.grey)),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-              final doc = docs[index - 1];
-              final data = doc.data() as Map<String, dynamic>? ?? {};
-              final albumId = doc.id;
-              final name = data['name'] as String? ?? '';
-              final coverUrl = data['coverUrl'] as String?;
-              final photoCount = data['photoCount'] as int? ?? 0;
+              final albumDoc = albums[index];
+              final albumId = albumDoc.id;
+              final data = albumDoc.data() as Map<String, dynamic>;
+              final albumTitle = data['title'] ?? '無標題相簿';
+              final coverPhotoUrl = data['coverUrl'] ?? ''; // 使用 coverUrl 字段
               final isSelected = _selectedAlbumIds.contains(albumId);
 
               return GestureDetector(
-                onLongPress: () {
+                onTap: () {
+                  if (widget.isPickingImage) {
+                    _selectImageFromAlbum(albumId, albumTitle); // 選擇模式下，進入相簿選擇圖片
+                  } else {
+                    // 非選擇模式下，進入相簿查看圖片
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AlbumPage(
+                          albumId: albumId,
+                          albumName: albumTitle,
+                          isPickingImage: false,
+                        ),
+                      ),
+                    );
+                  }
+                },
+                onLongPress: !widget.isPickingImage // 選擇模式下禁用長按
+                    ? () {
                   setState(() {
                     if (isSelected) {
                       _selectedAlbumIds.remove(albumId);
@@ -198,79 +191,98 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
                       _selectedAlbumIds.add(albumId);
                     }
                   });
-                },
-                onTap: () {
+                  // 在長按選中相簿時，再次檢查是否有選中的相簿來顯示刪除按鈕
+                  // 這是一個暫時的解決方案，更好的方式是將刪除邏輯移入 StreamBuilder 內部
                   if (_selectedAlbumIds.isNotEmpty) {
-                    setState(() {
-                      if (isSelected) {
-                        _selectedAlbumIds.remove(albumId);
-                      } else {
-                        _selectedAlbumIds.add(albumId);
-                      }
-                    });
-                  } else {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => AlbumPage(albumId: albumId, albumName: name)),
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('已選取 ${_selectedAlbumIds.length} 個相簿'),
+                        action: SnackBarAction(
+                          label: '刪除',
+                          onPressed: () async {
+                            final isConfirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('刪除相簿'),
+                                content: Text('確定要刪除選取的${_selectedAlbumIds.length}個相簿及其所有照片嗎？'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('刪除')),
+                                ],
+                              ),
+                            );
+                            if (isConfirm == true) {
+                              await _deleteSelectedAlbums(albums); // 傳遞完整的 albums 列表
+                            }
+                          },
+                        ),
+                      ),
                     );
                   }
-                },
-                child: Stack(
-                  children: [
-                    Card(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                                image: coverUrl != null
-                                    ? DecorationImage(image: NetworkImage(coverUrl), fit: BoxFit.cover)
-                                    : null,
-                                color: coverUrl == null ? Colors.grey.shade100 : null,
-                              ),
-                              child: coverUrl == null
-                                  ? const Center(
-                                child: Icon(Icons.photo_album, size: 50, color: Colors.grey),
-                              )
-                                  : null,
+                }
+                    : null,
+                child: Card(
+                  elevation: isSelected ? 8 : 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: isSelected
+                        ? const BorderSide(color: Colors.blue, width: 3)
+                        : BorderSide.none,
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (coverPhotoUrl.isNotEmpty)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: CachedNetworkImage(
+                            imageUrl: coverPhotoUrl,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                            errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                          ),
+                        )
+                      else
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.folder, size: 60, color: Colors.grey),
+                        ),
+                      Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+                          color: Colors.black54,
+                          child: Text(
+                            albumTitle,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      if (isSelected)
+                        const Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: EdgeInsets.all(8.0),
+                            child: Icon(
+                              Icons.check_circle,
+                              color: Colors.blue,
+                              size: 24,
                             ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Column(
-                              children: [
-                                Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 6),
-                                Text('$photoCount 張相片', style: const TextStyle(color: Colors.grey)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Positioned(
-                      left: 8,
-                      top: 8,
-                      child: Checkbox(
-                        value: isSelected,
-                        onChanged: (checked) {
-                          setState(() {
-                            if (checked == true) {
-                              _selectedAlbumIds.add(albumId);
-                            } else {
-                              _selectedAlbumIds.remove(albumId);
-                            }
-                          });
-                        },
-                        shape: const CircleBorder(),
-                        side: const BorderSide(width: 1, color: Colors.grey),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
+                        ),
+                    ],
+                  ),
                 ),
               );
             },

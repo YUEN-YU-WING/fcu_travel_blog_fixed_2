@@ -4,14 +4,13 @@ import 'package:geocoding/geocoding.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:cloud_firestore/cloud_firestore.dart'; // 引入 Firestore
-import 'package:firebase_auth/firebase_auth.dart'; // 引入 FirebaseAuth
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // 引入 dotenv (如果你使用方案一)
-
-// 假設你的 EditArticlePage 位於 'edit_article_page.dart'
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:ui' as ui;
+import 'package:flutter/services.dart';
 import 'edit_article_page.dart';
-// 假設你有一個 ArticleDetailPage 用於顯示遊記詳情
-import 'my_articles_page.dart'; // 如果有，請取消註解
 
 class MapPickerPage extends StatefulWidget {
   const MapPickerPage({super.key});
@@ -22,99 +21,174 @@ class MapPickerPage extends StatefulWidget {
 
 class _MapPickerPageState extends State<MapPickerPage> {
   GoogleMapController? mapController;
-  LatLng? _selectedLocation; // 用於新增遊記時的地點
-  String? _selectedAddress; // 用於新增遊記時的地址
+  LatLng? _selectedLocation;
+  String? _selectedAddress;
+  String? _selectedPlaceName;
   final TextEditingController _searchController = TextEditingController();
-  Set<Marker> _markers = {}; // 所有地圖上的標記，包括選定地點和遊記
+  Set<Marker> _markers = {};
 
-  List<Map<String, dynamic>> _articles = []; // 儲存從 Firebase 載入的遊記
+  List<Map<String, dynamic>> _articles = [];
+  Map<String, BitmapDescriptor> _thumbnailCache = {};
 
-  // ❗ 替換為你的 Web API Key，或從 dotenv 加載
   final String _googleMapsApiKey = kIsWeb ? dotenv.env['GOOGLE_MAPS_WEB_API_KEY']! : "";
 
   static const LatLng _initialCameraPosition = LatLng(23.6937, 120.8906);
 
+  // --- 自定義 InfoWindow 相關狀態 ---
+  bool _showCustomInfoWindow = false;
+  Map<String, dynamic>? _currentInfoWindowArticle; // 儲存當前點擊遊記的資料
+  Offset? _customInfoWindowPosition; // InfoWindow 的螢幕位置
+
   @override
   void initState() {
     super.initState();
-    // _selectedLocation = _initialCameraPosition;
-    // _addMarker(_initialCameraPosition);
-    // _getAddressFromLatLng(_initialCameraPosition);
-    _loadArticles(); // 載入遊記
+    _selectedLocation = _initialCameraPosition;
+    _getAddressFromLatLng(_initialCameraPosition);
+    _loadArticles();
+    _updateMarkers();
+  }
+
+  @override
+  void dispose() {
+    mapController?.dispose();
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _onMapCreated(GoogleMapController controller) {
     mapController = controller;
-    _updateMarkers(); // 在地圖創建後更新所有標記
+    _updateMarkers();
   }
 
-  void _onTap(LatLng latLng) {
+  // 修改 _onTap，現在它只用於選擇地點，點擊標記則觸發自定義 InfoWindow
+  void _onMapTap(LatLng latLng) {
     setState(() {
       _selectedLocation = latLng;
-      // 點擊地圖時只更新選定位置的標記，保留遊記標記
+      _selectedPlaceName = null; // 點擊新地點時清除地標名稱
+      _showCustomInfoWindow = false; // 點擊地圖空白處關閉 InfoWindow
       _updateMarkers(newSelectedLocation: latLng);
     });
     _getAddressFromLatLng(latLng);
   }
 
-  void _addMarker(LatLng latLng, {String? markerId, String? title, String? snippet, Function? onTapCallback}) {
-    _markers.add(
-      Marker(
-        markerId: MarkerId(markerId ?? 'selected_location'),
-        position: latLng,
-        infoWindow: InfoWindow(
-          title: title ?? '選取的位置',
-          snippet: snippet,
-          onTap: onTapCallback != null ? () => onTapCallback() : null,
-        ),
-        icon: onTapCallback != null ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange) : BitmapDescriptor.defaultMarker, // 遊記用橘色標記
-      ),
-    );
+  // 點擊 Marker 的處理邏輯，現在用於顯示自定義 InfoWindow
+  Future<void> _onMarkerTap(String articleId) async {
+    final article = _articles.firstWhere((a) => a['id'] == articleId);
+    final geoPoint = article['location'] as GeoPoint;
+    final LatLng markerLatLng = LatLng(geoPoint.latitude, geoPoint.longitude);
+
+    // 將地圖中心移動到標記點
+    mapController?.animateCamera(CameraUpdate.newLatLng(markerLatLng));
+
+    // 計算 InfoWindow 的螢幕位置
+    // 這是一個近似值，更精確的計算需要地圖的投影轉換
+    // 這裡簡單地將 InfoWindow 顯示在螢幕中央上方
+    final RenderBox renderBox = context.findRenderObject() as RenderBox;
+    final Size size = renderBox.size;
+    final double screenWidth = size.width;
+    final double screenHeight = size.height;
+
+    // 將 InfoWindow 放置在螢幕上方中央附近
+    final Offset position = Offset(screenWidth / 2 - 150, screenHeight / 2 - 150);
+
+
+    setState(() {
+      _showCustomInfoWindow = true;
+      _currentInfoWindowArticle = article;
+      _customInfoWindowPosition = position;
+    });
   }
 
-  // 重新整理所有標記
-  void _updateMarkers({LatLng? newSelectedLocation}) {
+
+  Future<BitmapDescriptor> _getCustomMarkerIcon(String imageUrl, String markerId) async {
+    if (_thumbnailCache.containsKey(markerId)) {
+      return _thumbnailCache[markerId]!;
+    }
+
+    try {
+      final response = await http.get(Uri.parse(imageUrl));
+      if (response.statusCode == 200) {
+        final Uint8List bytes = response.bodyBytes;
+        final ui.Codec codec = await ui.instantiateImageCodec(bytes, targetWidth: 80, targetHeight: 80); // 確保是正方形
+        final ui.FrameInfo frameInfo = await codec.getNextFrame();
+        final ByteData? byteData = await frameInfo.image.toByteData(format: ui.ImageByteFormat.png);
+        if (byteData != null) {
+          final descriptor = BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
+          _thumbnailCache[markerId] = descriptor;
+          return descriptor;
+        }
+      }
+    } catch (e) {
+      print('Error loading custom marker icon for $imageUrl: $e');
+    }
+    return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+  }
+
+  Future<void> _updateMarkers({LatLng? newSelectedLocation}) async {
     _markers.clear();
-    // 添加所有遊記標記
     for (var article in _articles) {
       final GeoPoint geoPoint = article['location'];
-      _addMarker(
-        LatLng(geoPoint.latitude, geoPoint.longitude),
-        markerId: article['id'],
-        title: article['title'],
-        snippet: article['address'] ?? '點擊查看詳情',
-        onTapCallback: () {
-          // 點擊遊記標記時導航到遊記詳情頁面
-          // Navigator.push(
-          //   context,
-          //   MaterialPageRoute(builder: (context) => ArticleDetailPage(articleId: article['id'])),
-          // );
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('點擊了遊記: ${article['title']}')),
-          );
-        },
+      final String articleId = article['id'];
+      final String? thumbnailUrl = article['thumbnailImageUrl'];
+
+      BitmapDescriptor markerIcon;
+      // if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
+      //   markerIcon = await _getCustomMarkerIcon(thumbnailUrl, articleId);
+      // } else {
+      //   markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      // }
+
+      markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+
+      _markers.add(
+        Marker(
+          markerId: MarkerId(articleId),
+          position: LatLng(geoPoint.latitude, geoPoint.longitude),
+          // 注意：這裡 InfoWindow 的 onTap 不再是導航，而是觸發自定義 InfoWindow
+          // 原生的 InfoWindow 只用於顯示簡單的文字提示，實際交互由 _onMarkerTap 處理
+          // infoWindow: InfoWindow(
+          //   title: article['placeName'] ?? article['title'] ?? '遊記',
+          //   snippet: article['address'] ?? '',
+          // ),
+          icon: markerIcon,
+          onTap: () => _onMarkerTap(articleId), // 點擊 Marker 觸發自定義 InfoWindow
+        ),
       );
     }
-    // 添加當前選定地點的標記
-    if (newSelectedLocation != null) {
-      _addMarker(newSelectedLocation);
-    } else if (_selectedLocation != null) {
-      _addMarker(_selectedLocation!);
-    }
-    setState(() {}); // 更新 UI
+
+    // 當前選定地點的標記
+    LatLng currentSelected = newSelectedLocation ?? _selectedLocation!;
+    _markers.add(
+      Marker(
+        markerId: const MarkerId('selected_location'),
+        position: currentSelected,
+        infoWindow: InfoWindow(
+          title: _selectedPlaceName ?? '選取的位置',
+          snippet: _selectedAddress ?? '',
+        ),
+        icon: BitmapDescriptor.defaultMarker,
+        onTap: () {
+          // 點擊選定地點標記時，可以選擇顯示一個簡單的原生 InfoWindow
+          // 或者關閉自定義 InfoWindow
+          setState(() {
+            _showCustomInfoWindow = false; // 點擊藍色標記時關閉自定義 InfoWindow
+          });
+        },
+      ),
+    );
+    setState(() {});
   }
 
-  // 從 Firestore 載入遊記
   Future<void> _loadArticles() async {
     try {
       final querySnapshot = await FirebaseFirestore.instance.collection('articles').get();
       setState(() {
         _articles = querySnapshot.docs.map((doc) => {
           ...doc.data(),
-          'id': doc.id, // 將 document ID 也儲存起來
+          'id': doc.id,
         }).toList();
-        _updateMarkers(); // 載入後更新地圖上的標記
       });
+      _updateMarkers();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('載入遊記失敗: $e')),
@@ -123,9 +197,7 @@ class _MapPickerPageState extends State<MapPickerPage> {
     }
   }
 
-  // --- Web 平台專用的反向地理編碼 ---
   Future<String> _getWebAddressFromLatLng(LatLng latLng) async {
-    // ... (保持不變，與上次提供的程式碼相同) ...
     final String url =
         "https://maps.googleapis.com/maps/api/geocode/json?latlng=${latLng.latitude},${latLng.longitude}&key=$_googleMapsApiKey&language=zh-TW";
     try {
@@ -146,9 +218,7 @@ class _MapPickerPageState extends State<MapPickerPage> {
     }
   }
 
-  // --- Web 平台專用的地理編碼 (搜尋地點) ---
   Future<List<LatLng>> _getWebLatLngFromAddress(String address) async {
-    // ... (保持不變，與上次提供的程式碼相同) ...
     final String url =
         "https://maps.googleapis.com/maps/api/geocode/json?address=${Uri.encodeComponent(address)}&key=$_googleMapsApiKey&language=zh-TW";
     try {
@@ -172,13 +242,13 @@ class _MapPickerPageState extends State<MapPickerPage> {
     }
   }
 
-  // --- 判斷平台，調用不同地理編碼邏輯 ---
   Future<void> _getAddressFromLatLng(LatLng latLng) async {
     String addressResult;
+    String placeNameResult = '';
     if (kIsWeb) {
       addressResult = await _getWebAddressFromLatLng(latLng);
+      placeNameResult = addressResult.split(',').first.trim();
     } else {
-      // Android/iOS 平台繼續使用 geocoding 套件
       try {
         List<Placemark> placemarks = await placemarkFromCoordinates(latLng.latitude, latLng.longitude);
         if (placemarks.isNotEmpty) {
@@ -197,22 +267,26 @@ class _MapPickerPageState extends State<MapPickerPage> {
             }
           }
           addressResult = addressParts.join(', ');
+          placeNameResult = place.name ?? place.thoroughfare ?? place.locality ?? addressResult.split(',').first.trim();
+
           if (addressResult.isEmpty) {
             addressResult = "無法找到詳細地址，經緯度: ${latLng.latitude.toStringAsFixed(4)}, ${latLng.longitude.toStringAsFixed(4)}";
           }
         } else {
           addressResult = "無法找到地址資訊，經緯度: ${latLng.latitude.toStringAsFixed(4)}, ${latLng.longitude.toStringAsFixed(4)}";
+          placeNameResult = "未知地標";
         }
       } catch (e) {
         print("Error getting address on non-web: $e");
         addressResult = "獲取地址失敗 (Native): $e";
+        placeNameResult = "獲取地標失敗";
       }
     }
     setState(() {
       _selectedAddress = addressResult;
+      _selectedPlaceName = placeNameResult;
     });
   }
-
 
   Future<void> _searchLocation() async {
     final query = _searchController.text;
@@ -237,14 +311,13 @@ class _MapPickerPageState extends State<MapPickerPage> {
     if (locations.isNotEmpty) {
       final latLng = locations[0];
       mapController?.animateCamera(CameraUpdate.newLatLng(latLng));
-      _onTap(latLng); // 更新選取位置和標記
+      _onMapTap(latLng); // 使用 _onMapTap 處理，因為它會清除 InfoWindow
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('找不到該地點')),
       );
     }
   }
-
 
   Future<void> _createNewArticle() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -254,25 +327,24 @@ class _MapPickerPageState extends State<MapPickerPage> {
       );
       return;
     }
-    if (_selectedLocation == null || _selectedAddress == null) {
+    if (_selectedLocation == null || _selectedAddress == null || _selectedPlaceName == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('請先在地圖上選擇一個地點')),
+        const SnackBar(content: Text('請先在地圖上選擇一個地點並確認地標名稱')),
       );
       return;
     }
 
-    // 導航到 EditArticlePage，並傳遞選定地點和地址
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => EditArticlePage(
           initialLocation: _selectedLocation,
           initialAddress: _selectedAddress,
+          initialPlaceName: _selectedPlaceName,
         ),
       ),
     );
 
-    // 如果 EditArticlePage 儲存成功並返回 true，則重新載入遊記
     if (result == true) {
       _loadArticles();
     }
@@ -280,14 +352,13 @@ class _MapPickerPageState extends State<MapPickerPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 檢查用戶登入狀態，以決定是否顯示「新增遊記」按鈕
     final bool isLoggedIn = FirebaseAuth.instance.currentUser != null;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('選擇地點與查看遊記'),
         actions: [
-          if (isLoggedIn && _selectedLocation != null) // 登入狀態下且選取地點後才顯示
+          if (isLoggedIn && _selectedLocation != null && _selectedPlaceName != null)
             IconButton(
               icon: const Icon(Icons.add_location_alt),
               onPressed: _createNewArticle,
@@ -296,10 +367,11 @@ class _MapPickerPageState extends State<MapPickerPage> {
           IconButton(
             icon: const Icon(Icons.check),
             onPressed: () {
-              if (_selectedLocation != null) {
+              if (_selectedLocation != null && _selectedAddress != null && _selectedPlaceName != null) {
                 Navigator.pop(context, {
                   'location': _selectedLocation,
                   'address': _selectedAddress,
+                  'placeName': _selectedPlaceName,
                 });
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -311,53 +383,200 @@ class _MapPickerPageState extends State<MapPickerPage> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack( // 使用 Stack 來疊加地圖和自定義 InfoWindow
         children: [
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
+          Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: const InputDecoration(
+                          hintText: '搜尋地點',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                        onSubmitted: (_) => _searchLocation(),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.search),
+                      onPressed: _searchLocation,
+                    ),
+                  ],
+                ),
+              ),
+              if (_selectedPlaceName != null && _selectedPlaceName!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                  child: Text(
+                    '地標名稱: $_selectedPlaceName',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              if (_selectedAddress != null && _selectedAddress!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                  child: Text(
+                    '選取地址: $_selectedAddress',
+                    style: const TextStyle(fontSize: 14),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              Expanded(
+                child: GoogleMap(
+                  onMapCreated: _onMapCreated,
+                  initialCameraPosition: const CameraPosition(
+                    target: _initialCameraPosition,
+                    zoom: 8.0,
+                  ),
+                  onTap: _onMapTap, // 點擊地圖時關閉 InfoWindow
+                  markers: _markers,
+                  mapType: MapType.normal,
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: true,
+                ),
+              ),
+            ],
+          ),
+          if (_showCustomInfoWindow && _currentInfoWindowArticle != null && _customInfoWindowPosition != null)
+            Positioned(
+              left: _customInfoWindowPosition!.dx,
+              top: _customInfoWindowPosition!.dy,
+              child: CustomInfoWindow(
+                article: _currentInfoWindowArticle!,
+                onClose: () {
+                  setState(() {
+                    _showCustomInfoWindow = false;
+                    _currentInfoWindowArticle = null;
+                  });
+                },
+                onEdit: () async {
+                  setState(() {
+                    _showCustomInfoWindow = false; // 關閉 InfoWindow
+                  });
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EditArticlePage(
+                        articleId: _currentInfoWindowArticle!['id'],
+                        initialTitle: _currentInfoWindowArticle!['title'],
+                        initialContent: _currentInfoWindowArticle!['content'],
+                        initialLocation: LatLng(
+                          (_currentInfoWindowArticle!['location'] as GeoPoint).latitude,
+                          (_currentInfoWindowArticle!['location'] as GeoPoint).longitude,
+                        ),
+                        initialAddress: _currentInfoWindowArticle!['address'],
+                        initialPlaceName: _currentInfoWindowArticle!['placeName'],
+                        initialThumbnailImageUrl: _currentInfoWindowArticle!['thumbnailImageUrl'],
+                        initialThumbnailFileName: _currentInfoWindowArticle!['thumbnailFileName'],
+                      ),
+                    ),
+                  );
+                  if (result == true) {
+                    _loadArticles(); // 重新載入遊記
+                  }
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- 自定義 InfoWindow Widget ---
+class CustomInfoWindow extends StatelessWidget {
+  final Map<String, dynamic> article;
+  final VoidCallback onClose;
+  final VoidCallback onEdit;
+
+  const CustomInfoWindow({
+    super.key,
+    required this.article,
+    required this.onClose,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final String title = article['title'] ?? '無標題遊記';
+    final String placeName = article['placeName'] ?? '';
+    final String address = article['address'] ?? '';
+    final String? thumbnailUrl = article['thumbnailImageUrl'];
+
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.all(10),
+      child: Container(
+        width: 300,
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: const InputDecoration(
-                      hintText: '搜尋地點',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10),
-                    ),
-                    onSubmitted: (_) => _searchLocation(),
+                  child: Text(
+                    placeName.isNotEmpty ? placeName : title,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: _searchLocation,
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: onClose,
                 ),
               ],
             ),
-          ),
-          if (_selectedAddress != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-              child: Text(
-                '選取地址: $_selectedAddress',
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            if (thumbnailUrl != null && thumbnailUrl.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: CachedNetworkImage(
+                    imageUrl: thumbnailUrl,
+                    width: double.infinity,
+                    height: 120,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                    errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 80),
+                  ),
+                ),
+              ),
+            Text(
+              title, // 遊記標題
+              style: const TextStyle(fontSize: 14, color: Colors.grey),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              address, // 詳細地址
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.bottomRight,
+              child: TextButton.icon(
+                icon: const Icon(Icons.edit, size: 18),
+                label: const Text('編輯遊記'),
+                onPressed: onEdit,
               ),
             ),
-          Expanded(
-            child: GoogleMap(
-              onMapCreated: _onMapCreated,
-              initialCameraPosition: const CameraPosition(
-                target: _initialCameraPosition,
-                zoom: 8.0,
-              ),
-              onTap: _onTap,
-              markers: _markers,
-              mapType: MapType.normal,
-              myLocationEnabled: true,
-              myLocationButtonEnabled: true,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
