@@ -14,6 +14,8 @@ import 'article_interactive_editor.dart';
 import 'test_photo_page.dart';
 import 'markdown_editor.dart';
 import 'MapPage.dart';
+import 'article_detail_page.dart';
+import 'public_articles_page.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -59,7 +61,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
     EditArticlePage(),
     MyArticlesPage(),
     AlbumFolderPage(),
-    MapPage(),
+    PublicArticlesPage(),
     // 你可以繼續新增其他功能頁，例如 SettingsPage(), UserManagementPage() ...
   ];
 

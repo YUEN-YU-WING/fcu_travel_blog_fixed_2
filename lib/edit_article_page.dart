@@ -1,22 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:markdown_editor_plus/markdown_editor_plus.dart';
+import 'package:html_editor_enhanced/html_editor.dart'; // 正確的引入
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // 引入圖片緩存
+import 'package:cached_network_image/cached_network_image.dart';
 import 'map_picker_page.dart';
 import 'album_folder_page.dart';
 
 class EditArticlePage extends StatefulWidget {
   final String? articleId;
   final String? initialTitle;
-  final String? initialContent;
+  final String? initialContent; // 現在會是 HTML 內容
   final LatLng? initialLocation;
   final String? initialAddress;
   final String? initialPlaceName;
   final String? initialThumbnailImageUrl;
   final String? initialThumbnailFileName;
+  final bool? initialIsPublic; // 新增公開狀態
 
   const EditArticlePage({
     super.key,
@@ -28,6 +29,7 @@ class EditArticlePage extends StatefulWidget {
     this.initialPlaceName,
     this.initialThumbnailImageUrl,
     this.initialThumbnailFileName,
+    this.initialIsPublic, // 接收公開狀態
   });
 
   static EditArticlePage fromRouteArguments(BuildContext context) {
@@ -35,12 +37,13 @@ class EditArticlePage extends StatefulWidget {
     return EditArticlePage(
       articleId: args['articleId'] as String?,
       initialTitle: args['initialTitle'] as String?,
-      initialContent: args['initialContent'] as String?,
+      initialContent: args['content'] as String?, // 這裡也要改為 'content'
       initialLocation: args['location'] as LatLng?,
       initialAddress: args['address'] as String?,
       initialPlaceName: args['placeName'] as String?,
       initialThumbnailImageUrl: args['thumbnailImageUrl'] as String?,
       initialThumbnailFileName: args['thumbnailFileName'] as String?,
+      initialIsPublic: args['isPublic'] as bool?, // 從路由參數獲取公開狀態
     );
   }
 
@@ -50,42 +53,56 @@ class EditArticlePage extends StatefulWidget {
 
 class _EditArticlePageState extends State<EditArticlePage> {
   late final TextEditingController _titleController;
-  late final TextEditingController _contentController;
   late final TextEditingController _placeNameController;
+  late HtmlEditorController _htmlEditorController; // HTML 編輯器控制器
 
   LatLng? _selectedLocation;
   String? _selectedAddress;
   String? _thumbnailImageUrl;
   String? _thumbnailFileName;
+  bool _isPublic = false; // 預設為不公開
 
   bool _isLoading = false;
+  String? _initialEditorContent; // 新增：用於儲存編輯器的初始內容
+
+  // 標記編輯器是否已經準備好，避免過早 setText
+  bool _isEditorReady = false;
 
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.initialTitle ?? '');
-    _contentController = TextEditingController(text: widget.initialContent ?? '');
     _placeNameController = TextEditingController(text: widget.initialPlaceName ?? '');
+    _htmlEditorController = HtmlEditorController();
+
     _selectedLocation = widget.initialLocation;
     _selectedAddress = widget.initialAddress;
     _thumbnailImageUrl = widget.initialThumbnailImageUrl;
     _thumbnailFileName = widget.initialThumbnailFileName;
+    _isPublic = widget.initialIsPublic ?? false;
 
+    // 這裡的邏輯需要調整，確保在 HTML 編輯器完全初始化後再設定內容
+    // 我們將這個初始內容設置移動到 onInit 回調中
     if (widget.articleId != null &&
-        (widget.initialTitle == null ||
-            widget.initialContent == null ||
-            widget.initialLocation == null ||
-            widget.initialPlaceName == null ||
-            widget.initialThumbnailImageUrl == null)) {
+        (_titleController.text.isEmpty ||
+            _initialEditorContent == null || // 檢查編輯器內容是否已從路由傳入
+            _selectedLocation == null ||
+            _placeNameController.text.isEmpty ||
+            _thumbnailImageUrl == null ||
+            widget.initialIsPublic == null)) {
+      print('initState: ArticleId exists, fetching full article data from Firestore...');
       _fetchArticle();
+    } else {
+      print('initState: No need to fetch. ArticleId: ${widget.articleId}, initialContent is: ${_initialEditorContent != null ? 'present' : 'absent'}');
     }
+
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _contentController.dispose();
     _placeNameController.dispose();
+
     super.dispose();
   }
 
@@ -99,8 +116,11 @@ class _EditArticlePageState extends State<EditArticlePage> {
       if (doc.exists) {
         final data = doc.data();
         _titleController.text = data?['title'] ?? '';
-        _contentController.text = data?['content'] ?? '';
         _placeNameController.text = data?['placeName'] ?? '';
+        // --- 核心修改：將獲取的內容保存到 _initialEditorContent ---
+        _initialEditorContent = data?['content'];
+        print('fetchArticle: Fetched content from Firestore: ${_initialEditorContent?.length.clamp(0, 100)} chars.');
+
         if (data?['location'] != null) {
           final GeoPoint geoPoint = data!['location'];
           _selectedLocation = LatLng(geoPoint.latitude, geoPoint.longitude);
@@ -108,19 +128,22 @@ class _EditArticlePageState extends State<EditArticlePage> {
         _selectedAddress = data?['address'] ?? '';
         _thumbnailImageUrl = data?['thumbnailImageUrl'] ?? '';
         _thumbnailFileName = data?['thumbnailFileName'] ?? '';
+        _isPublic = data?['isPublic'] ?? false; // 載入公開狀態
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('載入文章失敗: $e')),
       );
+    } finally {
+      setState(() => _isLoading = false);
     }
-    setState(() => _isLoading = false);
+
   }
 
   Future<void> _saveArticle() async {
     final title = _titleController.text.trim();
-    final content = _contentController.text.trim();
     final placeName = _placeNameController.text.trim();
+    final content = await _htmlEditorController.getText(); // 從 HTML 編輯器獲取內容
     final user = FirebaseAuth.instance.currentUser;
 
     if (title.isEmpty || content.isEmpty || placeName.isEmpty) {
@@ -153,12 +176,13 @@ class _EditArticlePageState extends State<EditArticlePage> {
     try {
       final dataToSave = {
         'title': title,
-        'content': content,
+        'content': content, // 儲存 HTML 內容
         'placeName': placeName,
         'location': GeoPoint(_selectedLocation!.latitude, _selectedLocation!.longitude),
         'address': _selectedAddress,
         'thumbnailImageUrl': _thumbnailImageUrl,
         'thumbnailFileName': _thumbnailFileName,
+        'isPublic': _isPublic, // 儲存公開狀態
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -194,11 +218,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
       setState(() {
         _selectedLocation = result['location'] as LatLng;
         _selectedAddress = result['address'] as String;
-        // 如果地標名稱未設定，可以嘗試從地址中提取一個部分作為預設值
-        if (_placeNameController.text.isEmpty && result['address'] != null) {
-          _placeNameController.text = (result['address'] as String).split(',').first.trim();
-        }
-        _placeNameController.text = result['placeName'] as String? ?? _placeNameController.text; // 優先使用返回的地標名稱
+        _placeNameController.text = result['placeName'] as String? ?? _placeNameController.text;
       });
     }
   }
@@ -227,8 +247,6 @@ class _EditArticlePageState extends State<EditArticlePage> {
     }
   }
 
-  // ... (接續上一個回應的 _EditArticlePageState class) ...
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -254,9 +272,10 @@ class _EditArticlePageState extends State<EditArticlePage> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView( // <-- 將 Column 包裹在 SingleChildScrollView 中
+          : SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextField(
               controller: _titleController,
@@ -302,9 +321,9 @@ class _EditArticlePageState extends State<EditArticlePage> {
                     const SizedBox(height: 8),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8.0),
-                      child: CachedNetworkImage( // 使用 CachedNetworkImage
+                      child: CachedNetworkImage(
                         imageUrl: _thumbnailImageUrl!,
-                        width: 100, // 顯示一個小預覽圖
+                        width: 100,
                         height: 100,
                         fit: BoxFit.cover,
                         placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
@@ -315,27 +334,84 @@ class _EditArticlePageState extends State<EditArticlePage> {
                   ],
                 ),
               ),
-            // MarkdownAutoPreview 是一個 Expanded Widget，
-            // 當它在 SingleChildScrollView 內部時，通常會導致錯誤，
-            // 因為 SingleChildScrollView 的子 Widget 不能直接擴展。
-            // 這裡我們需要給它一個固定的高度，或者使用 Flexible/Expanded 包裹在一個具有高度的父級中。
-            // 為了方便滾動，我們直接給它一個較大的固定高度。
-            SizedBox(
-              height: 800, // 設定一個固定高度，讓內容可滾動
-              child: MarkdownAutoPreview(
-                controller: _contentController,
-                enableToolBar: true,
-                minLines: 10, // 保持最小行數以控制編輯器大小
-                emojiConvert: true,
-                autoCloseAfterSelectEmoji: true,
-                decoration: const InputDecoration(
-                  labelText: '內容',
-                  border: OutlineInputBorder(),
-                  hintText: '請輸入Markdown內容...',
+            Row(
+              children: [
+                const Text('公開發表', style: TextStyle(fontSize: 16)),
+                const Spacer(),
+                Switch(
+                  value: _isPublic,
+                  onChanged: (value) {
+                    setState(() {
+                      _isPublic = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey),
+                borderRadius: BorderRadius.circular(5.0),
+              ),
+              child: HtmlEditor(
+                controller: _htmlEditorController,
+                htmlEditorOptions: HtmlEditorOptions(
+                  // initialText: widget.initialContent, // 這裡已經移除了
+                  hint: "請輸入遊記內容...",
+                  shouldEnsureVisible: true,
+                  // autoAdjustHeight: true, // 嘗試將這個設定為 false 或不設定
+                ),
+                htmlToolbarOptions: HtmlToolbarOptions(
+                  toolbarPosition: ToolbarPosition.aboveEditor,
+                  toolbarType: ToolbarType.nativeGrid,
+                  onButtonPressed: (ButtonType type, bool? status, Function? updateStatus) {
+                    return true;
+                  },
+                  onDropdownChanged: (DropdownType type, dynamic changed, Function? updateStatus) {
+                    return true;
+                  },
+                ),
+                otherOptions: const OtherOptions(
+                  height: 300, // 我們在這裡已經設定了高度
+                  decoration: BoxDecoration(border: Border.fromBorderSide(BorderSide.none)),
+                ),
+                callbacks: Callbacks(
+                  onInit: () async {
+                    print("Callbacks: onInit triggered. Editor is now ready.");
+                    _isEditorReady = true;
+
+                    if (_initialEditorContent != null && _initialEditorContent!.isNotEmpty) {
+                      // 將 await 的調用結果轉換為一個 Future<dynamic>
+                      // 這是一種避免 Dart 分析器對 Future<void> 過於嚴格的變通方法
+                      await (_htmlEditorController.setText(_initialEditorContent!) as Future<dynamic>);
+                      print('onInit: Initial content set via setText.');
+                    } else {
+                      print('onInit: No initial content to set yet.');
+                    }
+                  },
+                  onChangeContent: (String? changed) {
+                    // print("Content changed to: $changed");
+                  },
+                  onImageUpload: (FileUpload file) async {
+                    print("Image upload requested: ${file.name}");
+                    // ...
+                  },
+                  onImageUploadError: (FileUpload? file, String? base64, UploadError error) {
+                    String errorMessage = '未知圖片上傳錯誤';
+                    if (error != null) {
+                      errorMessage = error.toString();
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('圖片上傳失敗: $errorMessage')),
+                    );
+                    print('圖片上傳失敗: $errorMessage');
+                  },
                 ),
               ),
             ),
-            const SizedBox(height: 16), // 在內容下方添加一些間距
+            const SizedBox(height: 16),
           ],
         ),
       ),

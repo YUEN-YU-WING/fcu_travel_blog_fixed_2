@@ -7,6 +7,7 @@ import 'widgets/my_app_bar.dart';
 import 'ai_upload_page.dart';
 import 'MapPage.dart';
 import 'map_picker_page.dart';
+import 'public_articles_page.dart'; // 引入公開文章頁面
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -50,6 +51,7 @@ class HomePage extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
     return Scaffold(
       appBar: const MyAppBar(title: "首頁"),
+
       body: Center(
         // child: ElevatedButton(
         //   onPressed: () => _goToImageRecognition(context),
