@@ -1,4 +1,3 @@
-// lib/backend_home.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -12,7 +11,8 @@ import 'article_interactive_editor.dart';
 import 'edit_article_page.dart';
 import 'my_articles_page.dart';
 import 'album_folder_page.dart';
-import 'MapPage.dart';
+import 'map_picker_page.dart';
+import 'public_articles_page.dart';
 
 void _goToHome(BuildContext context) {
   Navigator.of(context).pushAndRemoveUntil(
@@ -46,8 +46,8 @@ class _BackendHomePageState extends State<BackendHomePage> {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final isWideScreen = MediaQuery.of(context).size.width > 800;
 
-    // 右側各功能頁：嵌入後台，僅隱藏自己的 Back（AppBar 照舊）
     final List<Widget> pages = <Widget>[
       const ProfilePage(embedded: true),
       const SettingsPage(embedded: true),
@@ -55,41 +55,42 @@ class _BackendHomePageState extends State<BackendHomePage> {
       const EditArticlePage(embedded: true),
       const MyArticlesPage(embedded: true),
       const AlbumFolderPage(embedded: true),
-      const MapPage(embedded: true),
+      const MapPickerPage(embedded: true),
+      const PublicArticlesPage(embedded: true),
     ];
 
+    // ✅ 手機版：用 Drawer
+    if (!isWideScreen) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text(
+            '後台',
+            style: TextStyle(
+              color: Colors.white, // ✅ 統一字體顏色
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          backgroundColor: Colors.blueGrey[900], // ✅ 統一背景色
+          iconTheme: const IconThemeData(color: Colors.white), // ✅ 讓返回與漢堡按鈕也變白
+        ),
+        drawer: Drawer(
+          backgroundColor: Colors.blueGrey[900],
+          child: _buildSidebar(user, isWideScreen: false),
+        ),
+        body: pages[_selectedIndex],
+      );
+    }
+
+    // ✅ 桌面版：原本的側邊列 + 主內容
     return Scaffold(
       appBar: const MyAppBar(title: '後台'),
       body: Row(
         children: [
-          // 左側側欄（維持原本功能，不含 Back 項目）
           Container(
             width: 220,
             color: Colors.blueGrey[900],
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 48),
-                _navTile('個人資料', Icons.person, 0),
-                _navTile('設定', Icons.settings, 1),
-                _navTile('AI協助編輯', Icons.auto_awesome, 2),
-                _navTile('編輯文章', Icons.edit, 3),
-                _navTile('我的文章', Icons.article, 4),
-                _navTile('相簿管理', Icons.photo, 5),
-                _navTile('地圖', Icons.map, 6),
-                const Spacer(),
-                const Divider(color: Colors.white24, height: 1),
-                if (user != null)
-                  ListTile(
-                    leading: const Icon(Icons.logout, color: Colors.white70),
-                    title: const Text('登出', style: TextStyle(color: Colors.white70)),
-                    onTap: () => _logout(context),
-                  ),
-              ],
-            ),
+            child: _buildSidebar(user, isWideScreen: true),
           ),
-
-          // 右側內容
           Expanded(
             child: Container(
               color: Colors.grey[100],
@@ -101,13 +102,41 @@ class _BackendHomePageState extends State<BackendHomePage> {
     );
   }
 
-  Widget _navTile(String label, IconData icon, int idx) {
+  Widget _buildSidebar(User? user, {required bool isWideScreen}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 48),
+        _navTile('個人資料', Icons.person, 0, isWideScreen),
+        _navTile('設定', Icons.settings, 1, isWideScreen),
+        _navTile('AI協助編輯', Icons.auto_awesome, 2, isWideScreen),
+        _navTile('編輯文章', Icons.edit, 3, isWideScreen),
+        _navTile('我的文章', Icons.article, 4, isWideScreen),
+        _navTile('相簿管理', Icons.photo, 5, isWideScreen),
+        _navTile('地圖', Icons.map, 6, isWideScreen),
+        _navTile('公開文章', Icons.public, 7, isWideScreen),
+        const Spacer(),
+        const Divider(color: Colors.white24, height: 1),
+        if (user != null)
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.white70),
+            title: const Text('登出', style: TextStyle(color: Colors.white70)),
+            onTap: () => _logout(context),
+          ),
+      ],
+    );
+  }
+
+  Widget _navTile(String label, IconData icon, int idx, bool isWideScreen) {
     return ListTile(
       leading: Icon(icon, color: Colors.white),
       title: Text(label, style: const TextStyle(color: Colors.white)),
       selected: _selectedIndex == idx,
       selectedTileColor: Colors.blueGrey[700],
-      onTap: () => setState(() => _selectedIndex = idx),
+      onTap: () {
+        setState(() => _selectedIndex = idx);
+        if (!isWideScreen) Navigator.pop(context); // 關閉 Drawer
+      },
     );
   }
 }
