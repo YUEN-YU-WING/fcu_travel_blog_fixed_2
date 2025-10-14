@@ -1,28 +1,27 @@
+// lib/ai_upload_page.dart
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+
 import 'vision_service.dart';
 import 'storage_upload_service.dart';
 
-// 沒用的
-// 互動問題配置（可擴充更多問題）
+/// 互動問題（可擴充）
 const List<Map<String, String>> interactiveQuestions = [
   {
     "key": "order",
     "question": "此地標的瀏覽順序？（例：第1站、第2站...）",
     "hint": "請輸入瀏覽順序",
   },
-  // 可以再加其他問題
-  // {
-  //   "key": "feeling",
-  //   "question": "你對此地標有何感受？",
-  //   "hint": "請輸入感受",
-  // },
 ];
 
 class AIUploadPage extends StatefulWidget {
-  const AIUploadPage({super.key});
+  /// 後台嵌入時請設為 true：const AIUploadPage(embedded: true)
+  /// 獨立開頁則保持預設 false（會顯示系統返回鍵）
+  final bool embedded;
+
+  const AIUploadPage({super.key, this.embedded = false});
 
   @override
   State<AIUploadPage> createState() => _AIUploadPageState();
@@ -30,6 +29,7 @@ class AIUploadPage extends StatefulWidget {
 
 class _AIUploadPageState extends State<AIUploadPage> {
   final visionService = VisionService(serverUrl: 'http://localhost:8080');
+
   bool _loading = false;
   File? _image;
   String? _imageUrl;
@@ -44,37 +44,46 @@ class _AIUploadPageState extends State<AIUploadPage> {
       _image = null;
     });
 
-    // 選擇圖片
+    // 1) 選擇圖片
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery);
     if (picked == null) {
-      setState(() {
-        _loading = false;
-      });
+      if (!mounted) return;
+      setState(() => _loading = false);
       return;
     }
     _image = File(picked.path);
 
-    // 上傳到 Storage
-    final filename = "${DateTime.now().millisecondsSinceEpoch}_${picked.name}";
-    final ref = FirebaseStorage.instance.ref().child("uploads/$filename");
-    await ref.putFile(_image!);
-    final url = await ref.getDownloadURL();
-    _imageUrl = url;
+    try {
+      // 2) 上傳到 Firebase Storage
+      final filename = "${DateTime.now().millisecondsSinceEpoch}_${picked.name}";
+      final ref = FirebaseStorage.instance.ref().child("uploads/$filename");
+      await ref.putFile(_image!);
+      final url = await ref.getDownloadURL();
+      _imageUrl = url;
 
-    // 呼叫 VisionService
-    final landmark = await visionService.detectLandmarkByUrl(url);
-    _landmark = landmark;
+      // 3) 呼叫 VisionService
+      final landmark = await visionService.detectLandmarkByUrl(url);
+      _landmark = landmark;
 
-    setState(() {
-      _loading = false;
-    });
-
-    if (landmark.isNotEmpty && landmark != "未知地標") {
-      await _showInteractiveQuestions(landmark);
+      // 4) 問答互動（有地標才問）
+      if ((landmark ?? '').isNotEmpty && landmark != "未知地標") {
+        await _showInteractiveQuestions(landmark!);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('上傳或辨識失敗：$e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
+  /// 範例：帶 metadata 上傳（非主要流程）
   Future<void> doUploadWithMetadata() async {
     final metadata = {
       "author": "YUEN-YU-WING",
@@ -82,18 +91,16 @@ class _AIUploadPageState extends State<AIUploadPage> {
       "createdAt": DateTime.now().toIso8601String(),
     };
     final url = await StorageUploadService.pickAndUploadFile(metadata: metadata);
+    if (!mounted) return;
+
     if (url != null) {
-      Text("檔案已上傳，公開網址: $url");
-      // 你可以在這裡把 url 顯示在 UI 或傳給 VisionService
-      // 例如：
-      // final result = await visionService.detectLandmarkByUrl(url);
-      // setState(() => _result = result);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("檔案已上傳，公開網址: $url")));
     } else {
-      Text("未選擇檔案或上傳失敗");
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("未選擇檔案或上傳失敗")));
     }
   }
 
-  // 彈出互動問答（多題型可擴充）
+  // 彈出互動問答
   Future<void> _showInteractiveQuestions(String landmark) async {
     Map<String, String> answers = {};
     for (var q in interactiveQuestions) {
@@ -104,11 +111,11 @@ class _AIUploadPageState extends State<AIUploadPage> {
     }
     if (answers.isNotEmpty) {
       _answers[landmark] = answers;
-      setState(() {}); // 更新 UI
+      if (mounted) setState(() {}); // 更新 UI
     }
   }
 
-  // 單題問答 Dialog
+  // 單題 Dialog
   Future<String?> _showSingleQuestionDialog(String question, String hint) async {
     final controller = TextEditingController();
     return showDialog<String>(
@@ -162,7 +169,11 @@ class _AIUploadPageState extends State<AIUploadPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("AI 地標辨識與互動問答")),
+      appBar: AppBar(
+        title: const Text("AI 地標辨識與互動問答"),
+        // ✅ 核心：在後台嵌入時不顯示返回鍵；獨立開頁保留返回鍵
+        automaticallyImplyLeading: !widget.embedded,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: SingleChildScrollView(
@@ -174,14 +185,30 @@ class _AIUploadPageState extends State<AIUploadPage> {
                 onPressed: _loading ? null : _uploadAndDetect,
               ),
               const SizedBox(height: 20),
+
               if (_image != null)
                 Image.file(_image!, width: 200, height: 200),
+
               if (_imageUrl != null)
-                Text("圖片網址：$_imageUrl", style: const TextStyle(fontSize: 12)),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: SelectableText(
+                    "圖片網址：$_imageUrl",
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+
               const SizedBox(height: 20),
+
               if (_loading) const CircularProgressIndicator(),
-              if (_landmark != null)
-                Text("地標辨識結果：$_landmark", style: const TextStyle(fontSize: 18)),
+
+              if ((_landmark ?? '').isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12.0),
+                  child: Text("地標辨識結果：$_landmark",
+                      style: const TextStyle(fontSize: 18)),
+                ),
+
               const SizedBox(height: 30),
               _buildAnswerList(),
             ],

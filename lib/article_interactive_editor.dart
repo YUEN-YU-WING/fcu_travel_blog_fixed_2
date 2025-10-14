@@ -1,3 +1,4 @@
+// lib/article_interactive_editor.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -71,7 +72,9 @@ const List<Map<String, String>> interactiveQuestions = [
 ];
 
 class ArticleInteractiveEditor extends StatefulWidget {
-  const ArticleInteractiveEditor({super.key});
+  // ✅ 新增：後台嵌入時不顯示返回鍵
+  final bool embedded;
+  const ArticleInteractiveEditor({super.key, this.embedded = false});
 
   @override
   State<ArticleInteractiveEditor> createState() => _ArticleInteractiveEditorState();
@@ -113,21 +116,19 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
     });
   }
 
-
   // 串接 AI 地標分析
   Future<void> _analyzeLandmarksForSelected() async {
     setState(() => _loading = true);
     for (final img in _images.where((img) => _selectedImageIds.contains(img.id))) {
       final url = await getDownloadUrl(img.storagePath);
       final result = await _visionService.detectLandmarkByUrl(url);
-      if (result.isNotEmpty) {
+      if (result != null && result.isNotEmpty) {
         _landmarkResults[img.id] = result;
       }
     }
     setState(() => _loading = false);
     _generateArticlePreview();
   }
-
 
   // 沒有用到，呼叫 API，回傳地標名稱
   Future<String?> _analyzeLandmark(String imageUrl) async {
@@ -151,7 +152,8 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
         children: [
           const Icon(Icons.location_on, color: Colors.green),
           const SizedBox(width: 4),
-          Text("地標: $landmark", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+          Text("地標: $landmark",
+              style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
           IconButton(
             icon: const Icon(Icons.edit, size: 18),
             tooltip: '修改地標',
@@ -187,7 +189,7 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
     }
   }
 
-// 彈出手動輸入地標的Dialog
+  // 彈出手動輸入地標的Dialog
   Future<void> _showEditLandmarkDialog(ArticleImage img) async {
     final controller = TextEditingController(text: _landmarkResults[img.id] ?? '');
     final result = await showDialog<String>(
@@ -247,6 +249,7 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
       await _showInteractiveQuestions(img);
     }
     _generateArticlePreview();
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已完成所有選取圖片的問答')));
   }
 
@@ -255,7 +258,7 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("互動問題"),
+        title: const Text("互動問題"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -328,22 +331,27 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
   String _aiGeneratedArticle = '';
   bool _generatingAI = false;
 
-  //串接OpenAI API
+  // 串接 OpenAI API
   Future<void> _generateAIArticle() async {
     setState(() => _generatingAI = true);
     try {
       final spots = _collectSpotInfo();
       if (spots.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先完成問答與地標分析')));
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('請先完成問答與地標分析')));
+        }
         setState(() => _generatingAI = false);
         return;
       }
       final aiText = await generateTravelArticleWithOpenAI(spots);
       setState(() => _aiGeneratedArticle = aiText);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI產生失敗: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI產生失敗: $e')));
+      }
     } finally {
-      setState(() => _generatingAI = false);
+      if (mounted) setState(() => _generatingAI = false);
     }
   }
 
@@ -372,20 +380,24 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
           ),
         ],
       ),
-    ) ?? false;
+    ) ??
+        false;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("文章編輯：互動圖片問答")),
+      appBar: AppBar(
+        title: const Text("文章編輯：互動圖片問答"),
+        // ✅ 核心：後台嵌入時不顯示返回鍵；獨立開頁保留返回鍵
+        automaticallyImplyLeading: !widget.embedded,
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
         children: [
           Expanded(
             child: ListView.separated(
-              // ... 圖片多選列表 ...
               padding: const EdgeInsets.all(16),
               itemCount: _images.length,
               separatorBuilder: (_, __) => const SizedBox(height: 24),
@@ -402,12 +414,8 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
                           children: [
                             _buildImageWidget(img),
                             const SizedBox(height: 12),
-                            //Text("圖片ID: ${img.id}", style: const TextStyle(fontWeight: FontWeight.bold)),
                             Text("檔名: ${img.fileName}"),
-                            //Text("Storage路徑: ${img.storagePath}"),
                             Text("所屬相簿: ${img.albumId}"),
-                            //Text("上傳者UID: ${img.ownerUid}"),
-                            //Text("上傳時間: ${img.uploadedAt}"),
                             const SizedBox(height: 8),
                             _buildAnswerList(img),
                             _buildLandmarkResult(img),
@@ -431,9 +439,11 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
                                       await deleteImage(img);
                                       await _loadImages();
                                       setState(() => _loading = false);
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('已刪除圖片')),
-                                      );
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('已刪除圖片')),
+                                        );
+                                      }
                                     }
                                   },
                                 ),
@@ -504,13 +514,16 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('文章排版範例', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const Text('文章排版範例',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                   Container(
                     margin: const EdgeInsets.only(top: 8, bottom: 8),
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                    decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8)),
                     child: SizedBox(
-                      height: 200, // ← 你可以調整這個高度（單位: px）
+                      height: 200,
                       child: SingleChildScrollView(
                         child: SelectableText(_articlePreview),
                       ),
@@ -521,7 +534,8 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
                     label: const Text('複製到剪貼簿'),
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: _articlePreview));
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已複製')));
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(const SnackBar(content: Text('已複製')));
                     },
                   ),
                 ],
@@ -532,7 +546,11 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
               padding: const EdgeInsets.all(8.0),
               child: ElevatedButton.icon(
                 icon: _generatingAI
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
                     : const Icon(Icons.auto_stories),
                 label: const Text('AI自動生成遊記'),
                 onPressed: _generatingAI ? null : _generateAIArticle,
@@ -545,13 +563,16 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('AI自動生成遊記', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const Text('AI自動生成遊記',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                   Container(
                     margin: const EdgeInsets.only(top: 8, bottom: 8),
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                    decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8)),
                     child: SizedBox(
-                      height: 200, // ← 你可以調整這個高度（單位: px）
+                      height: 200,
                       child: SingleChildScrollView(
                         child: SelectableText(_aiGeneratedArticle),
                       ),
@@ -562,7 +583,8 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
                     label: const Text('複製到剪貼簿'),
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: _aiGeneratedArticle));
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已複製')));
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(const SnackBar(content: Text('已複製')));
                     },
                   ),
                 ],

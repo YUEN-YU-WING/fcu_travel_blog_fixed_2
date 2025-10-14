@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'home_page.dart';
-import 'backend_home.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -11,42 +10,28 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  String _message = "";
+  final emailCtrl = TextEditingController();
+  final pwdCtrl = TextEditingController();
+  bool _loading = false;
 
   Future<void> _login() async {
+    setState(() => _loading = true);
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        email: emailCtrl.text.trim(),
+        password: pwdCtrl.text.trim(),
       );
-      setState(() {
-        _message = "登入成功！";
-      });
-      // 登入成功後可以導航到主頁面
-      //Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage()));
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const BackendHomePage()));
+      if (!mounted) return;
+      // ✅ 登入後回首頁（清空返回堆疊）
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomePage()),
+            (route) => false,
+      );
     } on FirebaseAuthException catch (e) {
-      setState(() {
-        switch (e.code) {
-          case 'user-not-found':
-            _message = "查無此帳號";
-            break;
-          case 'wrong-password':
-            _message = "密碼錯誤";
-            break;
-          case 'invalid-email':
-            _message = "Email 格式錯誤";
-            break;
-          default:
-            _message = "錯誤：${e.message}";
-        }
-      });
-    } catch (e) {
-      setState(() {
-        _message = "錯誤：${e.toString()}";
-      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? '登入失敗')));
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -58,25 +43,12 @@ class _LoginPageState extends State<LoginPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: "Email"),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            TextField(
-              controller: _passwordController,
-              decoration: const InputDecoration(labelText: "密碼"),
-              obscureText: true,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _login,
-              child: const Text("登入"),
-            ),
+            TextField(controller: emailCtrl, decoration: const InputDecoration(labelText: 'Email')),
+            TextField(controller: pwdCtrl, decoration: const InputDecoration(labelText: '密碼'), obscureText: true),
             const SizedBox(height: 16),
-            Text(
-              _message,
-              style: const TextStyle(color: Colors.red),
+            ElevatedButton(
+              onPressed: _loading ? null : _login,
+              child: _loading ? const CircularProgressIndicator() : const Text('登入'),
             ),
           ],
         ),

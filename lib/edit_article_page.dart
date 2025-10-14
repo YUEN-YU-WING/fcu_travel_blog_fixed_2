@@ -1,26 +1,32 @@
+// lib/edit_article_page.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:html_editor_enhanced/html_editor.dart'; // 正確的引入
+import 'package:html_editor_enhanced/html_editor.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+
 import 'map_picker_page.dart';
 import 'album_folder_page.dart';
 
 class EditArticlePage extends StatefulWidget {
+  // ✅ 新增：在後台嵌入時不顯示系統返回鍵
+  final bool embedded;
+
   final String? articleId;
   final String? initialTitle;
-  final String? initialContent; // 現在會是 HTML 內容
+  final String? initialContent; // HTML 內容
   final LatLng? initialLocation;
   final String? initialAddress;
   final String? initialPlaceName;
   final String? initialThumbnailImageUrl;
   final String? initialThumbnailFileName;
-  final bool? initialIsPublic; // 新增公開狀態
+  final bool? initialIsPublic;
 
   const EditArticlePage({
     super.key,
+    this.embedded = false, // ✅ 預設為 false，獨立開頁時仍會有返回鍵
     this.articleId,
     this.initialTitle,
     this.initialContent,
@@ -29,7 +35,7 @@ class EditArticlePage extends StatefulWidget {
     this.initialPlaceName,
     this.initialThumbnailImageUrl,
     this.initialThumbnailFileName,
-    this.initialIsPublic, // 接收公開狀態
+    this.initialIsPublic,
   });
 
   static EditArticlePage fromRouteArguments(BuildContext context) {
@@ -37,13 +43,13 @@ class EditArticlePage extends StatefulWidget {
     return EditArticlePage(
       articleId: args['articleId'] as String?,
       initialTitle: args['initialTitle'] as String?,
-      initialContent: args['content'] as String?, // 這裡也要改為 'content'
+      initialContent: args['content'] as String?, // 這裡是 content
       initialLocation: args['location'] as LatLng?,
       initialAddress: args['address'] as String?,
       initialPlaceName: args['placeName'] as String?,
       initialThumbnailImageUrl: args['thumbnailImageUrl'] as String?,
       initialThumbnailFileName: args['thumbnailFileName'] as String?,
-      initialIsPublic: args['isPublic'] as bool?, // 從路由參數獲取公開狀態
+      initialIsPublic: args['isPublic'] as bool?,
     );
   }
 
@@ -54,18 +60,17 @@ class EditArticlePage extends StatefulWidget {
 class _EditArticlePageState extends State<EditArticlePage> {
   late final TextEditingController _titleController;
   late final TextEditingController _placeNameController;
-  late HtmlEditorController _htmlEditorController; // HTML 編輯器控制器
+  late HtmlEditorController _htmlEditorController;
 
   LatLng? _selectedLocation;
   String? _selectedAddress;
   String? _thumbnailImageUrl;
   String? _thumbnailFileName;
-  bool _isPublic = false; // 預設為不公開
+  bool _isPublic = false;
 
   bool _isLoading = false;
-  String? _initialEditorContent; // 新增：用於儲存編輯器的初始內容
+  String? _initialEditorContent;
 
-  // 標記編輯器是否已經準備好，避免過早 setText
   bool _isEditorReady = false;
 
   @override
@@ -81,28 +86,22 @@ class _EditArticlePageState extends State<EditArticlePage> {
     _thumbnailFileName = widget.initialThumbnailFileName;
     _isPublic = widget.initialIsPublic ?? false;
 
-    // 這裡的邏輯需要調整，確保在 HTML 編輯器完全初始化後再設定內容
-    // 我們將這個初始內容設置移動到 onInit 回調中
+    // 如果需要，從 Firestore 補齊完整文章資料
     if (widget.articleId != null &&
         (_titleController.text.isEmpty ||
-            _initialEditorContent == null || // 檢查編輯器內容是否已從路由傳入
+            _initialEditorContent == null ||
             _selectedLocation == null ||
             _placeNameController.text.isEmpty ||
             _thumbnailImageUrl == null ||
             widget.initialIsPublic == null)) {
-      print('initState: ArticleId exists, fetching full article data from Firestore...');
       _fetchArticle();
-    } else {
-      print('initState: No need to fetch. ArticleId: ${widget.articleId}, initialContent is: ${_initialEditorContent != null ? 'present' : 'absent'}');
     }
-
   }
 
   @override
   void dispose() {
     _titleController.dispose();
     _placeNameController.dispose();
-
     super.dispose();
   }
 
@@ -117,9 +116,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
         final data = doc.data();
         _titleController.text = data?['title'] ?? '';
         _placeNameController.text = data?['placeName'] ?? '';
-        // --- 核心修改：將獲取的內容保存到 _initialEditorContent ---
         _initialEditorContent = data?['content'];
-        print('fetchArticle: Fetched content from Firestore: ${_initialEditorContent?.length.clamp(0, 100)} chars.');
 
         if (data?['location'] != null) {
           final GeoPoint geoPoint = data!['location'];
@@ -128,22 +125,22 @@ class _EditArticlePageState extends State<EditArticlePage> {
         _selectedAddress = data?['address'] ?? '';
         _thumbnailImageUrl = data?['thumbnailImageUrl'] ?? '';
         _thumbnailFileName = data?['thumbnailFileName'] ?? '';
-        _isPublic = data?['isPublic'] ?? false; // 載入公開狀態
+        _isPublic = data?['isPublic'] ?? false;
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('載入文章失敗: $e')),
       );
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
-
   }
 
   Future<void> _saveArticle() async {
     final title = _titleController.text.trim();
     final placeName = _placeNameController.text.trim();
-    final content = await _htmlEditorController.getText(); // 從 HTML 編輯器獲取內容
+    final content = await _htmlEditorController.getText();
     final user = FirebaseAuth.instance.currentUser;
 
     if (title.isEmpty || content.isEmpty || placeName.isEmpty) {
@@ -172,17 +169,16 @@ class _EditArticlePageState extends State<EditArticlePage> {
     }
 
     setState(() => _isLoading = true);
-
     try {
       final dataToSave = {
         'title': title,
-        'content': content, // 儲存 HTML 內容
+        'content': content,
         'placeName': placeName,
         'location': GeoPoint(_selectedLocation!.latitude, _selectedLocation!.longitude),
         'address': _selectedAddress,
         'thumbnailImageUrl': _thumbnailImageUrl,
         'thumbnailFileName': _thumbnailFileName,
-        'isPublic': _isPublic, // 儲存公開狀態
+        'isPublic': _isPublic,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -195,16 +191,15 @@ class _EditArticlePageState extends State<EditArticlePage> {
       } else {
         await FirebaseFirestore.instance.collection('articles').doc(widget.articleId).update(dataToSave);
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('儲存成功！')),
-      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('儲存成功！')));
       Navigator.pop(context, true);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('儲存失敗: $e')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('儲存失敗: $e')));
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -213,7 +208,6 @@ class _EditArticlePageState extends State<EditArticlePage> {
       context,
       MaterialPageRoute(builder: (context) => const MapPickerPage()),
     );
-
     if (result != null && result is Map<String, dynamic>) {
       setState(() {
         _selectedLocation = result['location'] as LatLng;
@@ -252,6 +246,8 @@ class _EditArticlePageState extends State<EditArticlePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.articleId == null ? '新增文章' : '編輯文章'),
+        // ✅ 核心：在後台嵌入時（embedded=true）不顯示返回鍵
+        automaticallyImplyLeading: !widget.embedded,
         actions: [
           IconButton(
             icon: const Icon(Icons.location_on),
@@ -327,8 +323,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
                         height: 100,
                         fit: BoxFit.cover,
                         placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-                        errorWidget: (context, url, error) =>
-                        const Icon(Icons.broken_image, size: 100),
+                        errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 100),
                       ),
                     ),
                   ],
@@ -340,16 +335,13 @@ class _EditArticlePageState extends State<EditArticlePage> {
                 const Spacer(),
                 Switch(
                   value: _isPublic,
-                  onChanged: (value) {
-                    setState(() {
-                      _isPublic = value;
-                    });
-                  },
+                  onChanged: (value) => setState(() => _isPublic = value),
                 ),
               ],
             ),
             const SizedBox(height: 16),
 
+            // HTML 編輯器
             Container(
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.grey),
@@ -358,10 +350,8 @@ class _EditArticlePageState extends State<EditArticlePage> {
               child: HtmlEditor(
                 controller: _htmlEditorController,
                 htmlEditorOptions: HtmlEditorOptions(
-                  // initialText: widget.initialContent, // 這裡已經移除了
                   hint: "請輸入遊記內容...",
                   shouldEnsureVisible: true,
-                  // autoAdjustHeight: true, // 嘗試將這個設定為 false 或不設定
                 ),
                 htmlToolbarOptions: HtmlToolbarOptions(
                   toolbarPosition: ToolbarPosition.aboveEditor,
@@ -374,43 +364,33 @@ class _EditArticlePageState extends State<EditArticlePage> {
                   },
                 ),
                 otherOptions: const OtherOptions(
-                  height: 300, // 我們在這裡已經設定了高度
+                  height: 300,
                   decoration: BoxDecoration(border: Border.fromBorderSide(BorderSide.none)),
                 ),
                 callbacks: Callbacks(
                   onInit: () async {
-                    print("Callbacks: onInit triggered. Editor is now ready.");
                     _isEditorReady = true;
-
-                    if (_initialEditorContent != null && _initialEditorContent!.isNotEmpty) {
-                      // 將 await 的調用結果轉換為一個 Future<dynamic>
-                      // 這是一種避免 Dart 分析器對 Future<void> 過於嚴格的變通方法
-                      await (_htmlEditorController.setText(_initialEditorContent!) as Future<dynamic>);
-                      print('onInit: Initial content set via setText.');
-                    } else {
-                      print('onInit: No initial content to set yet.');
+                    // 有初始內容 → 設到編輯器
+                    final toSet = widget.initialContent ?? _initialEditorContent ?? '';
+                    if (toSet.isNotEmpty) {
+                      await (_htmlEditorController.setText(toSet) as Future<dynamic>);
                     }
                   },
-                  onChangeContent: (String? changed) {
-                    // print("Content changed to: $changed");
-                  },
+                  onChangeContent: (String? changed) {},
                   onImageUpload: (FileUpload file) async {
-                    print("Image upload requested: ${file.name}");
-                    // ...
+                    // 若你要在這裡上傳圖片到 Storage，可補齊上傳邏輯
+                    // 並用 controller.insertNetworkImage(url) 插入
                   },
                   onImageUploadError: (FileUpload? file, String? base64, UploadError error) {
-                    String errorMessage = '未知圖片上傳錯誤';
-                    if (error != null) {
-                      errorMessage = error.toString();
-                    }
+                    String errorMessage = error.toString();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('圖片上傳失敗: $errorMessage')),
                     );
-                    print('圖片上傳失敗: $errorMessage');
                   },
                 ),
               ),
             ),
+
             const SizedBox(height: 16),
           ],
         ),

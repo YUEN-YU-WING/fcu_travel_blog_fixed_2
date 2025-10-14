@@ -1,3 +1,4 @@
+// lib/album_folder_page.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -7,9 +8,14 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'album_page.dart'; // 引入你的 AlbumPage
 
 class AlbumFolderPage extends StatefulWidget {
-  final bool isPickingImage; // 新增：是否處於圖片選擇模式
+  final bool isPickingImage;   // 是否在圖片選擇模式（供 EditArticlePage 選封面圖）
+  final bool embedded;         // ✅ 新增：是否嵌入後台（嵌入時不顯示返回鍵）
 
-  const AlbumFolderPage({super.key, this.isPickingImage = false});
+  const AlbumFolderPage({
+    super.key,
+    this.isPickingImage = false,
+    this.embedded = false,
+  });
 
   @override
   State<AlbumFolderPage> createState() => _AlbumFolderPageState();
@@ -46,9 +52,7 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
         final storagePath = data['storagePath'] as String?;
         try {
           if (storagePath != null) {
-            final storageRef = FirebaseStorage.instance
-                .ref()
-                .child(storagePath);
+            final storageRef = FirebaseStorage.instance.ref().child(storagePath);
             await storageRef.delete();
           }
         } catch (_) {
@@ -65,13 +69,13 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
       _selectedAlbumIds.clear();
     });
 
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已刪除${albumsToDelete.length}個相簿及其相片')),
     );
   }
 
-  // 修改：此方法現在直接導航到 AlbumPage
-  // 當 AlbumPage 返回結果時，AlbumFolderPage 將其傳遞給調用者 (EditArticlePage)
+  // 選相簿 → 進入 AlbumPage 選圖片；回傳後把結果 pop 回呼叫者（例如 EditArticlePage）
   Future<void> _selectImageFromAlbum(String albumId, String albumName) async {
     final result = await Navigator.push(
       context,
@@ -79,13 +83,12 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
         builder: (context) => AlbumPage(
           albumId: albumId,
           albumName: albumName,
-          isPickingImage: true, // 進入 AlbumPage 時也設為圖片選擇模式
+          isPickingImage: true,
         ),
       ),
     );
 
     if (result != null && result is Map<String, dynamic>) {
-      // 如果 AlbumPage 返回了一張圖片，就將其返回給調用者 (EditArticlePage)
       Navigator.pop(context, result);
     }
   }
@@ -94,7 +97,10 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
   Widget build(BuildContext context) {
     if (_currentUser == null) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.isPickingImage ? '選擇圖片' : '我的相簿')),
+        appBar: AppBar(
+          title: Text(widget.isPickingImage ? '選擇圖片' : '我的相簿'),
+          automaticallyImplyLeading: !widget.embedded, // ✅ 嵌入時不顯示返回鍵
+        ),
         body: const Center(child: Text('請先登入')),
       );
     }
@@ -102,30 +108,29 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.isPickingImage ? '選擇相簿中的圖片作為縮圖' : '我的相簿'),
+        automaticallyImplyLeading: !widget.embedded, // ✅ 核心：獨立開啟才有返回鍵
         actions: [
-          // 只有在非選擇模式下才顯示刪除和新增相簿按鈕
+          // 只有在非選擇模式下才顯示新增/刪除按鈕
           if (!widget.isPickingImage && _selectedAlbumIds.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete),
+              tooltip: '刪除選取的相簿',
               onPressed: () {
-                // 需要從 StreamBuilder 獲取最新的 docs 列表
-                // 目前這個 onPressed 沒有直接的 docs 參數，你可能需要將 StreamBuilder 提取或使用更高級的狀態管理
+                // 這個 action 需要 albums 列表，實際刪除交給底下 StreamBuilder 內的浮動條來做
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('請長按選擇相簿後，點擊刪除按鈕上方才會出現確認對話框。')),
+                  const SnackBar(content: Text('長按選擇相簿後，請在畫面下方的刪除提示中確認刪除。')),
                 );
               },
-              tooltip: '刪除選取的相簿',
             ),
           if (!widget.isPickingImage)
             IconButton(
               icon: const Icon(Icons.add),
+              tooltip: '新增相簿',
               onPressed: () {
-                // TODO: 新增相簿的邏輯
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('新增相簿功能待實現')),
                 );
               },
-              tooltip: '新增相簿',
             ),
         ],
       ),
@@ -153,7 +158,7 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
               crossAxisCount: 2,
               crossAxisSpacing: 8,
               mainAxisSpacing: 8,
-              childAspectRatio: 1, // 正方形的網格
+              childAspectRatio: 1,
             ),
             itemCount: albums.length,
             itemBuilder: (context, index) {
@@ -161,15 +166,14 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
               final albumId = albumDoc.id;
               final data = albumDoc.data() as Map<String, dynamic>;
               final albumTitle = data['title'] ?? '無標題相簿';
-              final coverPhotoUrl = data['coverUrl'] ?? ''; // 使用 coverUrl 字段
+              final coverPhotoUrl = data['coverUrl'] ?? '';
               final isSelected = _selectedAlbumIds.contains(albumId);
 
               return GestureDetector(
                 onTap: () {
                   if (widget.isPickingImage) {
-                    _selectImageFromAlbum(albumId, albumTitle); // 選擇模式下，進入相簿選擇圖片
+                    _selectImageFromAlbum(albumId, albumTitle);
                   } else {
-                    // 非選擇模式下，進入相簿查看圖片
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -182,7 +186,7 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
                     );
                   }
                 },
-                onLongPress: !widget.isPickingImage // 選擇模式下禁用長按
+                onLongPress: !widget.isPickingImage
                     ? () {
                   setState(() {
                     if (isSelected) {
@@ -191,8 +195,7 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
                       _selectedAlbumIds.add(albumId);
                     }
                   });
-                  // 在長按選中相簿時，再次檢查是否有選中的相簿來顯示刪除按鈕
-                  // 這是一個暫時的解決方案，更好的方式是將刪除邏輯移入 StreamBuilder 內部
+
                   if (_selectedAlbumIds.isNotEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -206,13 +209,19 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
                                 title: const Text('刪除相簿'),
                                 content: Text('確定要刪除選取的${_selectedAlbumIds.length}個相簿及其所有照片嗎？'),
                                 actions: [
-                                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-                                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('刪除')),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: const Text('取消'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: const Text('刪除'),
+                                  ),
                                 ],
                               ),
                             );
                             if (isConfirm == true) {
-                              await _deleteSelectedAlbums(albums); // 傳遞完整的 albums 列表
+                              await _deleteSelectedAlbums(albums);
                             }
                           },
                         ),
@@ -238,8 +247,10 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
                           child: CachedNetworkImage(
                             imageUrl: coverPhotoUrl,
                             fit: BoxFit.cover,
-                            placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-                            errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                            placeholder: (context, url) =>
+                            const Center(child: CircularProgressIndicator()),
+                            errorWidget: (context, url, error) =>
+                            const Icon(Icons.broken_image),
                           ),
                         )
                       else
@@ -274,11 +285,7 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
                           alignment: Alignment.topRight,
                           child: Padding(
                             padding: EdgeInsets.all(8.0),
-                            child: Icon(
-                              Icons.check_circle,
-                              color: Colors.blue,
-                              size: 24,
-                            ),
+                            child: Icon(Icons.check_circle, color: Colors.blue, size: 24),
                           ),
                         ),
                     ],
