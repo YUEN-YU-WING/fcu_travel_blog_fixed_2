@@ -13,7 +13,9 @@ import 'package:flutter/services.dart';
 import 'edit_article_page.dart';
 
 class MapPickerPage extends StatefulWidget {
-  const MapPickerPage({super.key});
+  final bool embedded;
+
+  const MapPickerPage({super.key, this.embedded = false});
 
   @override
   State<MapPickerPage> createState() => _MapPickerPageState();

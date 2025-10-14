@@ -4,7 +4,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'article_detail_page.dart'; // 引入文章詳情頁面
 
 class PublicArticlesPage extends StatefulWidget {
-  const PublicArticlesPage({super.key});
+  final bool embedded;
+
+  const PublicArticlesPage({super.key, this.embedded = false});
 
   @override
   State<PublicArticlesPage> createState() => _PublicArticlesPageState();
