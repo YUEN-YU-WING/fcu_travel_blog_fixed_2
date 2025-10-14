@@ -1,46 +1,36 @@
+// lib/backend_home.dart
 import 'package:flutter/material.dart';
-import 'profile_page.dart';
-import 'register_page.dart';
-import 'login_page.dart';
-import 'home_page.dart';
-import 'settings_page.dart';
-import 'widgets/my_app_bar.dart';
-import 'edit_article_page.dart';
-import 'my_articles_page.dart';
-import 'album_page.dart';
-import 'album_folder_page.dart';
-import 'ai_upload_page.dart';
-import 'article_interactive_editor.dart';
-import 'test_photo_page.dart';
-import 'markdown_editor.dart';
-import 'MapPage.dart';
-import 'article_detail_page.dart';
-import 'public_articles_page.dart';
-
 import 'package:firebase_auth/firebase_auth.dart';
 
-void _goToRegister(BuildContext context) {
-  Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterPage()));
-}
+import 'home_page.dart';
+import 'widgets/my_app_bar.dart';
 
-void _goToLogin(BuildContext context) {
-  Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginPage()));
-}
-
-void _goToProfile(BuildContext context) {
-
-}
+// 右側各功能頁（保持原本功能，只在頁內以 embedded 控制 back 顯示）
+import 'profile_page.dart';
+import 'settings_page.dart';
+import 'article_interactive_editor.dart';
+import 'edit_article_page.dart';
+import 'my_articles_page.dart';
+import 'album_folder_page.dart';
+import 'MapPage.dart';
 
 void _goToHome(BuildContext context) {
-  // 跳回主頁，可用 pushReplacement 或清空 stack
   Navigator.of(context).pushAndRemoveUntil(
     MaterialPageRoute(builder: (_) => const HomePage()),
-        (Route<dynamic> route) => false,
+        (route) => false,
   );
 }
 
-void _logout(BuildContext context) {
-
+Future<void> _logout(BuildContext context) async {
+  try {
+    await FirebaseAuth.instance.signOut();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已登出')));
+    _goToHome(context);
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('登出失敗：$e')));
+  }
 }
 
 class BackendHomePage extends StatefulWidget {
@@ -53,26 +43,26 @@ class BackendHomePage extends StatefulWidget {
 class _BackendHomePageState extends State<BackendHomePage> {
   int _selectedIndex = 0;
 
-  // 這裡新增你的功能頁面
-  final List<Widget> _pages = [
-    ProfilePage(),
-    SettingsPage(),
-    ArticleInteractiveEditor(),
-    EditArticlePage(),
-    MyArticlesPage(),
-    AlbumFolderPage(),
-    PublicArticlesPage(),
-    // 你可以繼續新增其他功能頁，例如 SettingsPage(), UserManagementPage() ...
-  ];
-
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+
+    // 右側各功能頁：嵌入後台，僅隱藏自己的 Back（AppBar 照舊）
+    final List<Widget> pages = <Widget>[
+      const ProfilePage(embedded: true),
+      const SettingsPage(embedded: true),
+      const ArticleInteractiveEditor(embedded: true),
+      const EditArticlePage(embedded: true),
+      const MyArticlesPage(embedded: true),
+      const AlbumFolderPage(embedded: true),
+      const MapPage(embedded: true),
+    ];
+
     return Scaffold(
-      appBar: const MyAppBar(title: "首頁"),
+      appBar: const MyAppBar(title: '後台'),
       body: Row(
         children: [
-          // 側邊欄
+          // 左側側欄（維持原本功能，不含 Back 項目）
           Container(
             width: 220,
             color: Colors.blueGrey[900],
@@ -80,68 +70,44 @@ class _BackendHomePageState extends State<BackendHomePage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 48),
-                ListTile(
-                  leading: const Icon(Icons.person, color: Colors.white),
-                  title: const Text('個人資料', style: TextStyle(color: Colors.white)),
-                  selected: _selectedIndex == 0,
-                  selectedTileColor: Colors.blueGrey[700],
-                  onTap: () => setState(() => _selectedIndex = 0),
-                ),
-                //這裡可以繼續加入其他功能
-                ListTile(
-                  leading: Icon(Icons.settings, color: Colors.white),
-                  title: Text('設定', style: TextStyle(color: Colors.white)),
-                  selected: _selectedIndex == 1,
-                  selectedTileColor: Colors.blueGrey[700],
-                  onTap: () => setState(() => _selectedIndex = 1),
-                ),
-                ListTile(
-                  leading: Icon(Icons.auto_awesome, color: Colors.white),
-                  title: Text('AI協助編輯', style: TextStyle(color: Colors.white)),
-                  selected: _selectedIndex == 2,
-                  selectedTileColor: Colors.blueGrey[700],
-                  onTap: () => setState(() => _selectedIndex = 2),
-                ),
-                ListTile(
-                  leading: Icon(Icons.edit, color: Colors.white),
-                  title: Text('編輯文章', style: TextStyle(color: Colors.white)),
-                  selected: _selectedIndex == 3,
-                  selectedTileColor: Colors.blueGrey[700],
-                  onTap: () => setState(() => _selectedIndex = 3),
-                ),
-                ListTile(
-                  leading: Icon(Icons.article, color: Colors.white),
-                  title: Text('我的文章', style: TextStyle(color: Colors.white)),
-                  selected: _selectedIndex == 4,
-                  selectedTileColor: Colors.blueGrey[700],
-                  onTap: () => setState(() => _selectedIndex = 4),
-                ),
-                ListTile(
-                  leading: Icon(Icons.photo, color: Colors.white),
-                  title: Text('相簿管理', style: TextStyle(color: Colors.white)),
-                  selected: _selectedIndex == 5,
-                  selectedTileColor: Colors.blueGrey[700],
-                  onTap: () => setState(() => _selectedIndex = 5),
-                ),
-                ListTile(
-                  leading: Icon(Icons.map, color: Colors.white),
-                  title: Text('地圖', style: TextStyle(color: Colors.white)),
-                  selected: _selectedIndex == 6,
-                  selectedTileColor: Colors.blueGrey[700],
-                  onTap: () => setState(() => _selectedIndex = 6),
-                ),
+                _navTile('個人資料', Icons.person, 0),
+                _navTile('設定', Icons.settings, 1),
+                _navTile('AI協助編輯', Icons.auto_awesome, 2),
+                _navTile('編輯文章', Icons.edit, 3),
+                _navTile('我的文章', Icons.article, 4),
+                _navTile('相簿管理', Icons.photo, 5),
+                _navTile('地圖', Icons.map, 6),
+                const Spacer(),
+                const Divider(color: Colors.white24, height: 1),
+                if (user != null)
+                  ListTile(
+                    leading: const Icon(Icons.logout, color: Colors.white70),
+                    title: const Text('登出', style: TextStyle(color: Colors.white70)),
+                    onTap: () => _logout(context),
+                  ),
               ],
             ),
           ),
-          // 右側內容區
+
+          // 右側內容
           Expanded(
             child: Container(
               color: Colors.grey[100],
-              child: _pages[_selectedIndex],
+              child: pages[_selectedIndex],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _navTile(String label, IconData icon, int idx) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.white),
+      title: Text(label, style: const TextStyle(color: Colors.white)),
+      selected: _selectedIndex == idx,
+      selectedTileColor: Colors.blueGrey[700],
+      onTap: () => setState(() => _selectedIndex = idx),
     );
   }
 }

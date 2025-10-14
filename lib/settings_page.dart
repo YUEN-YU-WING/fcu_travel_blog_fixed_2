@@ -1,8 +1,13 @@
+// lib/settings_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  /// 後台右側嵌入時請設為 true，如：const SettingsPage(embedded: true)
+  /// 獨立開頁（一般 push）保持預設 false 會顯示系統返回鍵
+  final bool embedded;
+
+  const SettingsPage({super.key, this.embedded = false});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -24,16 +29,17 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _changeName() async {
-    if (_nameController.text.trim().isEmpty) {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
       setState(() => _statusMsg = "名字不能為空");
       return;
     }
     try {
-      await user?.updateDisplayName(_nameController.text.trim());
+      await user?.updateDisplayName(name);
       await user?.reload();
       setState(() => _statusMsg = "名字已更新");
     } catch (e) {
-      setState(() => _statusMsg = "更新失敗：${e.toString()}");
+      setState(() => _statusMsg = "更新失敗：$e");
     }
   }
 
@@ -43,7 +49,7 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     try {
-      // 先重新驗證舊密碼
+      // 重新驗證舊密碼
       final cred = EmailAuthProvider.credential(
         email: user!.email!,
         password: _currentPwController.text,
@@ -64,14 +70,26 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       });
     } catch (e) {
-      setState(() => _statusMsg = "密碼更新失敗：${e.toString()}");
+      setState(() => _statusMsg = "密碼更新失敗：$e");
     }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _currentPwController.dispose();
+    _newPwController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("設定")),
+      appBar: AppBar(
+        title: const Text("設定"),
+        // ✅ 核心：在後台嵌入時不顯示返回鍵；獨立開頁保留返回鍵
+        automaticallyImplyLeading: !widget.embedded,
+      ),
       body: Form(
         key: _formKey,
         child: ListView(

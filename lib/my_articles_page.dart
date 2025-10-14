@@ -1,16 +1,26 @@
+// lib/my_articles_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'edit_article_page.dart';
 
 class MyArticlesPage extends StatelessWidget {
-  const MyArticlesPage({super.key});
+  /// 在後台右側嵌入時請設為 true，如：const MyArticlesPage(embedded: true)
+  /// 獨立開頁（一般 push）保持預設 false 會顯示系統返回鍵
+  final bool embedded;
+
+  const MyArticlesPage({super.key, this.embedded = false});
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      return const Center(child: Text('請先登入'));
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('我的文章'),
+          automaticallyImplyLeading: !embedded,
+        ),
+        body: const Center(child: Text('請先登入')),
+      );
     }
 
     final articlesStream = FirebaseFirestore.instance
@@ -20,7 +30,11 @@ class MyArticlesPage extends StatelessWidget {
         .snapshots();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('我的文章')),
+      appBar: AppBar(
+        title: const Text('我的文章'),
+        // ✅ 核心：在後台嵌入時不顯示返回鍵；獨立開頁才顯示
+        automaticallyImplyLeading: !embedded,
+      ),
       body: StreamBuilder<QuerySnapshot>(
         stream: articlesStream,
         builder: (context, snapshot) {
@@ -44,6 +58,7 @@ class MyArticlesPage extends StatelessWidget {
               final data = doc.data() as Map<String, dynamic>? ?? {};
               final title = data['title'] ?? '';
               final content = data['content'] ?? '';
+
               return ListTile(
                 title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(
@@ -54,16 +69,17 @@ class MyArticlesPage extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () async {
                   // 跳轉到編輯頁，帶入文章內容
-                  final result = await Navigator.pushNamed(
+                  await Navigator.pushNamed(
                     context,
                     '/edit_article',
                     arguments: {
                       'articleId': doc.id,
                       'initialTitle': title,
-                      'initialContent': content,
+                      // ✅ 這裡用 `content` 才能對上 EditArticlePage.fromRouteArguments
+                      'content': content,
                     },
                   );
-                  // 若返回 true，可做刷新，但 StreamBuilder 會自動處理
+                  // StreamBuilder 會自動反映資料更新，不需手動刷新
                 },
               );
             },
@@ -73,8 +89,7 @@ class MyArticlesPage extends StatelessWidget {
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           // 跳轉到新增頁（無初始資料）
-          final result = await Navigator.pushNamed(context, '/edit_article');
-          // 若返回 true，可做刷新，但 StreamBuilder 會自動處理
+          await Navigator.pushNamed(context, '/edit_article');
         },
         child: const Icon(Icons.add),
         tooltip: '新增文章',

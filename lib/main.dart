@@ -1,52 +1,33 @@
+export 'app.dart';
+
+
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
-import 'home_page.dart';
-import 'my_articles_page.dart';
-import 'edit_article_page.dart';
-import 'album_page.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
-import 'album_folder_page.dart';
-import 'MapPage.dart';
-import 'PlaceSearchPage.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart'; // ✅ 加入 LatLng
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // 引入 dotenv
 
 
+import 'firebase_options.dart';
+import 'app.dart';
 
-void main() async {
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env"); // 加載 .env 文件
+
+
+  await dotenv.load(fileName: ".env");
+
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+
   await FirebaseAppCheck.instance.activate(
     androidProvider: AndroidProvider.debug,
     webProvider: ReCaptchaV3Provider('6LekZqsrAAAAAFSDOt3tWDnK5Ehv7xZCaaSDRDzq'),
   );
-  runApp(const MyMainApp());
-}
 
-class MyMainApp extends StatelessWidget {
-  const MyMainApp({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'FCU Travel Blog',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
-      home: const HomePage(),
-      routes: {
-        '/my_articles': (context) => const MyArticlesPage(),
-        '/edit_article': (context) => EditArticlePage.fromRouteArguments(context),
-        '/album': (context) => const AlbumFolderPage(),
-        '/map': (context) => const MapPage(),
-        '/search': (context) => const PlaceSearchPage(),
-
-      },
-    );
-  }
+  runApp(const MyApp());
 }

@@ -1,7 +1,5 @@
-import 'dart:convert';
-import 'dart:io';
+// lib/image_recognition.dart
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'vision_service.dart';
 
 class LandmarkTestPage extends StatefulWidget {
@@ -12,23 +10,41 @@ class LandmarkTestPage extends StatefulWidget {
 }
 
 class _LandmarkTestPageState extends State<LandmarkTestPage> {
-  //final _visionService = VisionService(serverUrl: 'http://10.0.2.2:8080'); // Android 模擬器用
-   final _visionService = VisionService(serverUrl: 'http://localhost:8080'); // Web or iOS 用
+  // 依你的後端/Google Key 二擇一設定：
+  // 1) 自架後端（Android 模擬器請用 10.0.2.2，iOS/Web 用 localhost）
+  final _visionService = VisionService(serverUrl: 'http://10.0.2.2:8080');
+  // 2) 若改直連 Google，請用：
+  // final _visionService = VisionService(googleApiKey: 'YOUR_API_KEY');
 
+  final _urlController = TextEditingController();
   String? _result;
-  final _controller = TextEditingController();
-  File? _selectedImage;
+  bool _loading = false;
 
   Future<void> _detectByUrl() async {
-    setState(() => _result = "分析中...");
+    final url = _urlController.text.trim();
+    if (url.isEmpty) {
+      setState(() => _result = "請先輸入圖片網址");
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _result = "分析中...";
+    });
     try {
-      final landmark = await _visionService.detectLandmarkByUrl(_controller.text.trim());
-      setState(() => _result = landmark);
+      final landmark = await _visionService.detectLandmarkByUrl(url);
+      setState(() => _result = landmark.isNotEmpty ? landmark : "（無地標）");
     } catch (e) {
       setState(() => _result = "錯誤: $e");
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,9 +54,8 @@ class _LandmarkTestPageState extends State<LandmarkTestPage> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // --- URL 辨識 ---
             TextField(
-              controller: _controller,
+              controller: _urlController,
               decoration: const InputDecoration(
                 labelText: "圖片網址（Storage downloadUrl）",
               ),
@@ -49,13 +64,14 @@ class _LandmarkTestPageState extends State<LandmarkTestPage> {
             ElevatedButton.icon(
               icon: const Icon(Icons.link),
               label: const Text("用網址分析地標"),
-              onPressed: _detectByUrl,
+              onPressed: _loading ? null : _detectByUrl,
             ),
-
-            const Divider(height: 40),
-
-            const SizedBox(height: 32),
-            Text(_result ?? "請輸入圖片網址"),
+            const SizedBox(height: 24),
+            if (_loading) const CircularProgressIndicator(),
+            if (_result != null) ...[
+              const SizedBox(height: 16),
+              Text(_result!, style: const TextStyle(fontSize: 16)),
+            ],
           ],
         ),
       ),
