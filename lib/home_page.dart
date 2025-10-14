@@ -9,6 +9,7 @@ import 'MapPage.dart';
 import 'map_picker_page.dart';
 import 'public_articles_page.dart'; // 引入公開文章頁面
 
+//導入頁面用的工具函式
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -38,6 +39,7 @@ class HomePage extends StatelessWidget {
       const SnackBar(content: Text("前往個人資料頁")),
     );
   }
+
 
   Future<void> _logout(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
