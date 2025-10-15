@@ -164,47 +164,115 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
               data: _articleData?['content'], // ✅ 用解碼後內容
               extensions: [
                 TagExtension(
-                  tagsToExtend: {"img"},
+                  tagsToExtend: {"p", "div"},
                   builder: (extensionContext) {
-                    final String? imageUrl = extensionContext.attributes['src'];
-                    final String? styleAttr = extensionContext.attributes['style'];
+                    final element = extensionContext.element;
 
-                    if (imageUrl == null || imageUrl.isEmpty) {
-                      return const Text('圖片URL缺失', style: TextStyle(color: Colors.red));
+                    if (element == null) return const SizedBox.shrink();
+
+                    // 取得該節點下的所有 <img>
+                    final children = element.children
+                        .where((child) => child.localName == 'img')
+                        .toList();
+
+                    // 🔹 沒圖片就交還原樣 HTML（這樣文字仍能顯示）
+                    if (children.isEmpty) {
+                      return Text(element.text ?? '',
+                          style: const TextStyle(fontSize: 16, color: Colors.black87));
                     }
 
-                    // 🔹 預設寬度
-                    double? imageWidth;
+                    // 🔹 多張圖片 → 可橫向滑動
+                    if (children.length > 1) {
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: children.map((child) {
+                            final imageUrl = child.attributes['src'];
+                            final styleAttr = child.attributes['style'] ?? '';
 
-                    // 🔹 解析 style 屬性中的 width
-                    if (styleAttr != null && styleAttr.contains('width')) {
-                      final RegExp widthRegex = RegExp(r'width:\s*([0-9.]+)(px|%)');
-                      final match = widthRegex.firstMatch(styleAttr);
+                            double? widthFactor;
+                            double? fixedWidth;
+
+                            final match =
+                            RegExp(r'width:\s*([0-9.]+)(px|%)').firstMatch(styleAttr);
+                            if (match != null) {
+                              final value = double.tryParse(match.group(1)!);
+                              final unit = match.group(2);
+                              if (value != null) {
+                                if (unit == '%') {
+                                  widthFactor = value / 100;
+                                } else if (unit == 'px') {
+                                  fixedWidth = value;
+                                }
+                              }
+                            }
+
+                            final screenWidth =
+                                MediaQuery.of(extensionContext.buildContext!).size.width;
+                            final finalWidth = fixedWidth ??
+                                (widthFactor != null ? screenWidth * widthFactor : 150);
+
+                            return Padding(
+                              padding: const EdgeInsets.all(4.0),
+                              child: CachedNetworkImage(
+                                imageUrl: imageUrl ?? '',
+                                width: finalWidth.clamp(50, screenWidth - 32),
+                                fit: BoxFit.contain,
+                                placeholder: (ctx, url) =>
+                                const CircularProgressIndicator(strokeWidth: 2),
+                                errorWidget: (ctx, url, error) =>
+                                const Icon(Icons.broken_image, size: 60),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      );
+                    }
+
+                    // 🔹 單張圖片 → 置中顯示
+                    else {
+                      final img = children.first;
+                      final imageUrl = img.attributes['src'];
+                      final styleAttr = img.attributes['style'] ?? '';
+
+                      double? widthFactor;
+                      double? fixedWidth;
+
+                      final match =
+                      RegExp(r'width:\s*([0-9.]+)(px|%)').firstMatch(styleAttr);
                       if (match != null) {
                         final value = double.tryParse(match.group(1)!);
                         final unit = match.group(2);
                         if (value != null) {
                           if (unit == '%') {
-                            imageWidth = (value / 100) * MediaQuery.of(extensionContext.buildContext!).size.width;
+                            widthFactor = value / 100;
                           } else if (unit == 'px') {
-                            imageWidth = value;
+                            fixedWidth = value;
                           }
                         }
                       }
-                    }
 
-                    return Center(
-                      child: CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        width: imageWidth, // ✅ 套用解析後的寬度
-                        fit: BoxFit.contain,
-                        placeholder: (ctx, url) => const CircularProgressIndicator(),
-                        errorWidget: (ctx, url, error) {
-                          print('❌ 圖片載入失敗: $url');
-                          return const Text('圖片載入失敗', style: TextStyle(color: Colors.red));
-                        },
-                      ),
-                    );
+                      final screenWidth =
+                          MediaQuery.of(extensionContext.buildContext!).size.width;
+                      final finalWidth = fixedWidth ??
+                          (widthFactor != null ? screenWidth * widthFactor : screenWidth * 0.9);
+
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: CachedNetworkImage(
+                            imageUrl: imageUrl ?? '',
+                            width: finalWidth.clamp(100, screenWidth - 32),
+                            fit: BoxFit.contain,
+                            placeholder: (ctx, url) =>
+                            const CircularProgressIndicator(strokeWidth: 2),
+                            errorWidget: (ctx, url, error) =>
+                            const Icon(Icons.broken_image, size: 80),
+                          ),
+                        ),
+                      );
+                    }
                   },
                 ),
               ],
