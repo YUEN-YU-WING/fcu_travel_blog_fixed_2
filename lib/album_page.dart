@@ -1,20 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:image_picker/image_picker.dart'; // 雖然這裡沒有直接用，但留著以防萬一
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // 引入圖片緩存套件
+import 'package:cached_network_image/cached_network_image.dart';
 
 class AlbumPage extends StatefulWidget {
   final String albumId;
   final String albumName;
-  final bool isPickingImage; // 新增：是否處於圖片選擇模式
+  final bool isPickingImage; // 是否處於圖片選擇模式 (決定是否顯示選擇 UI 和確認按鈕)
+  final bool allowMultiple; // 新增：是否允許選擇多張圖片
 
   const AlbumPage({
     super.key,
     required this.albumId,
     required this.albumName,
-    this.isPickingImage = false, // 預設為 false，即非圖片選擇模式
+    this.isPickingImage = false,
+    this.allowMultiple = false, // 預設為 false (單選)
   });
 
   @override
@@ -22,9 +24,11 @@ class AlbumPage extends StatefulWidget {
 }
 
 class _AlbumPageState extends State<AlbumPage> {
-  final _picker = ImagePicker();
+  final _picker = ImagePicker(); // 即使是 Firebase 相簿選擇，也可以保留用於上傳新圖片
   bool _isUploading = false;
-  Set<String> _selectedPhotoIds = {};
+  Set<String> _selectedPhotoIds = {}; // 用於追蹤已選中的圖片 ID
+  List<Map<String, dynamic>> _selectedPhotoData = []; // 用於儲存已選中圖片的 URL 和 fileName
+
 
   Future<void> _pickAndUploadImage() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -40,13 +44,13 @@ class _AlbumPageState extends State<AlbumPage> {
 
     setState(() => _isUploading = true);
 
-    final bytes = await pickedFile.readAsBytes(); // 支援 Web
+    final bytes = await pickedFile.readAsBytes();
     final fileName = '${DateTime.now().millisecondsSinceEpoch}_${user.uid}.jpg';
     final storagePath = 'user_albums/${user.uid}/$fileName';
     final storageRef = FirebaseStorage.instance.ref().child(storagePath);
 
     try {
-      final uploadTask = await storageRef.putData(bytes); // 取代 putFile
+      final uploadTask = await storageRef.putData(bytes);
       final downloadUrl = await uploadTask.ref.getDownloadURL();
 
       // 寫入 Firestore
@@ -57,6 +61,7 @@ class _AlbumPageState extends State<AlbumPage> {
         'uploadedAt': FieldValue.serverTimestamp(),
         'fileName': fileName,
         'albumId': widget.albumId,
+        'imageUrl': downloadUrl, // 為了統一，建議也將 url 存儲為 imageUrl
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -106,6 +111,7 @@ class _AlbumPageState extends State<AlbumPage> {
 
     setState(() {
       _selectedPhotoIds.clear();
+      _selectedPhotoData.clear(); // 清空已選數據
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -147,6 +153,44 @@ class _AlbumPageState extends State<AlbumPage> {
     }
   }
 
+  // 新增：處理圖片選擇邏輯
+  void _handlePhotoSelection(String photoId, String imageUrl, String fileName) {
+    setState(() {
+      if (widget.allowMultiple) {
+        // 多選模式：添加或移除
+        if (_selectedPhotoIds.contains(photoId)) {
+          _selectedPhotoIds.remove(photoId);
+          _selectedPhotoData.removeWhere((item) => item['imageUrl'] == imageUrl);
+        } else {
+          _selectedPhotoIds.add(photoId);
+          _selectedPhotoData.add({'imageUrl': imageUrl, 'fileName': fileName});
+        }
+      } else {
+        // 單選模式：替換選中的圖片
+        _selectedPhotoIds.clear();
+        _selectedPhotoData.clear();
+        _selectedPhotoIds.add(photoId);
+        _selectedPhotoData.add({'imageUrl': imageUrl, 'fileName': fileName});
+      }
+    });
+  }
+
+  // 新增：確認選擇並返回結果
+  void _confirmSelection() {
+    if (_selectedPhotoData.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請選擇至少一張圖片')),
+      );
+      return;
+    }
+
+    if (widget.allowMultiple) {
+      Navigator.pop(context, _selectedPhotoData); // 返回列表
+    } else {
+      Navigator.pop(context, _selectedPhotoData.first); // 返回單個 Map
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -161,9 +205,17 @@ class _AlbumPageState extends State<AlbumPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isPickingImage ? '選擇圖片' : widget.albumName), // 根據模式顯示不同標題
+        title: Text(widget.isPickingImage
+            ? (widget.allowMultiple ? '選擇多張圖片' : '選擇單張圖片')
+            : widget.albumName), // 根據模式和多選狀態顯示不同標題
         actions: [
-          if (!widget.isPickingImage) // 只有在非選擇模式下才顯示這些操作
+          if (widget.isPickingImage && _selectedPhotoIds.isNotEmpty) // 選擇模式下，且有選中才顯示確認按鈕
+            IconButton(
+              icon: const Icon(Icons.check),
+              onPressed: _confirmSelection,
+              tooltip: '確認選擇',
+            ),
+          if (!widget.isPickingImage) // 只有在非圖片選擇模式下才顯示這些操作
             StreamBuilder<QuerySnapshot>(
               stream: photosStream,
               builder: (context, snapshot) {
@@ -193,15 +245,18 @@ class _AlbumPageState extends State<AlbumPage> {
                         },
                       ),
                     // 只有在非選擇模式下才顯示全選Checkbox
-                    if (docs.isNotEmpty) // 只有有照片時才顯示全選
+                    if (docs.isNotEmpty)
                       Checkbox(
                         value: allSelected,
                         onChanged: (checked) {
                           setState(() {
                             if (checked == true) {
                               _selectedPhotoIds = docs.map((doc) => doc.id).toSet();
+                              // 注意：這裡只更新 ID，如果需要返回數據，也要更新 _selectedPhotoData
+                              // 為了簡化，這裡假設全選只是刪除操作的前置，如果需要返回所有選中照片，需要遍歷 docs 填充 _selectedPhotoData
                             } else {
                               _selectedPhotoIds.clear();
+                              _selectedPhotoData.clear();
                             }
                           });
                         },
@@ -235,8 +290,8 @@ class _AlbumPageState extends State<AlbumPage> {
               final doc = docs[index];
               final data = doc.data() as Map<String, dynamic>? ?? {};
               final storagePath = data['storagePath'] as String?;
-              final urlFromDB = data['url'] as String?;
-              final fileName = data['fileName'] as String?; // 獲取檔案名
+              final urlFromDB = data['url'] as String?; // 你的數據庫字段是 'url'
+              final fileName = data['fileName'] as String? ?? '未知檔案';
               final isSelected = _selectedPhotoIds.contains(doc.id);
 
               return FutureBuilder<String?>(
@@ -249,9 +304,8 @@ class _AlbumPageState extends State<AlbumPage> {
                   if (imageUrl == null) return const SizedBox();
 
                   return GestureDetector(
-                    onLongPress: widget.isPickingImage // 圖片選擇模式下禁用長按
-                        ? null
-                        : () {
+                    onLongPress: !widget.isPickingImage // 非圖片選擇模式下才允許長按選取
+                        ? () {
                       setState(() {
                         if (isSelected) {
                           _selectedPhotoIds.remove(doc.id);
@@ -259,16 +313,19 @@ class _AlbumPageState extends State<AlbumPage> {
                           _selectedPhotoIds.add(doc.id);
                         }
                       });
-                    },
+                    }
+                        : null,
                     onTap: () {
                       if (widget.isPickingImage) {
-                        // 如果是圖片選擇模式，點擊圖片就返回其 URL 和 fileName
-                        Navigator.pop(context, {
-                          'imageUrl': imageUrl,
-                          'fileName': fileName,
-                        });
+                        // 圖片選擇模式下，點擊圖片就調用選擇處理函數
+                        if (!widget.allowMultiple) { // 單選模式
+                          _handlePhotoSelection(doc.id, imageUrl, fileName);
+                          _confirmSelection(); // 單選直接確認並返回
+                        } else { // 多選模式
+                          _handlePhotoSelection(doc.id, imageUrl, fileName);
+                        }
                       } else if (_selectedPhotoIds.isNotEmpty) {
-                        // 如果是非選擇模式且有選取，點擊切換選取狀態
+                        // 非選擇模式且有選取，點擊切換選取狀態
                         setState(() {
                           if (isSelected) {
                             _selectedPhotoIds.remove(doc.id);
@@ -284,7 +341,7 @@ class _AlbumPageState extends State<AlbumPage> {
                             child: GestureDetector(
                               onTap: () => Navigator.pop(ctx),
                               child: InteractiveViewer(
-                                child: CachedNetworkImage( // 使用 CachedNetworkImage
+                                child: CachedNetworkImage(
                                   imageUrl: imageUrl,
                                   fit: BoxFit.contain,
                                   placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
@@ -309,7 +366,7 @@ class _AlbumPageState extends State<AlbumPage> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             clipBehavior: Clip.antiAlias,
-                            child: CachedNetworkImage( // 使用 CachedNetworkImage
+                            child: CachedNetworkImage(
                               imageUrl: imageUrl,
                               fit: BoxFit.cover,
                               placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
@@ -317,7 +374,18 @@ class _AlbumPageState extends State<AlbumPage> {
                             ),
                           ),
                         ),
-                        // 只有在非圖片選擇模式且有照片時才顯示Checkbox
+                        // 圖片選擇模式下顯示選取標記
+                        if (widget.isPickingImage && isSelected)
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: CircleAvatar(
+                              radius: 12,
+                              backgroundColor: Theme.of(context).colorScheme.primary,
+                              child: const Icon(Icons.check, size: 16, color: Colors.white),
+                            ),
+                          ),
+                        // 非圖片選擇模式下才顯示Checkbox
                         if (!widget.isPickingImage && docs.isNotEmpty)
                           Positioned(
                             left: 4,

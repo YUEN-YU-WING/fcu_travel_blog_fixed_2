@@ -8,13 +8,15 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'album_page.dart'; // 引入你的 AlbumPage
 
 class AlbumFolderPage extends StatefulWidget {
-  final bool isPickingImage;   // 是否在圖片選擇模式（供 EditArticlePage 選封面圖）
-  final bool embedded;         // ✅ 新增：是否嵌入後台（嵌入時不顯示返回鍵）
+  final bool isPickingImage;   // 是否在圖片選擇模式
+  final bool embedded;         // 是否嵌入後台（嵌入時不顯示返回鍵）
+  final bool allowMultiple;    // 是否允許選擇多張圖片 (此參數應該主要傳遞給 AlbumPage)
 
   const AlbumFolderPage({
     super.key,
     this.isPickingImage = false,
     this.embedded = false,
+    this.allowMultiple = false,
   });
 
   @override
@@ -75,20 +77,22 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
     );
   }
 
-  // 選相簿 → 進入 AlbumPage 選圖片；回傳後把結果 pop 回呼叫者（例如 EditArticlePage）
-  Future<void> _selectImageFromAlbum(String albumId, String albumName) async {
+  // 修改：選相簿 → 進入 AlbumPage 選圖片；回傳後把結果 pop 回呼叫者
+  Future<void> _navigateToAlbumAndPick(String albumId, String albumName) async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => AlbumPage(
           albumId: albumId,
           albumName: albumName,
-          isPickingImage: true,
+          isPickingImage: widget.isPickingImage, // 傳遞選擇模式
+          allowMultiple: widget.allowMultiple,   // 傳遞多選模式
         ),
       ),
     );
 
-    if (result != null && result is Map<String, dynamic>) {
+    // 如果 AlbumPage 有返回結果，就直接將結果 pop 回去
+    if (result != null) {
       Navigator.pop(context, result);
     }
   }
@@ -99,7 +103,7 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
       return Scaffold(
         appBar: AppBar(
           title: Text(widget.isPickingImage ? '選擇圖片' : '我的相簿'),
-          automaticallyImplyLeading: !widget.embedded, // ✅ 嵌入時不顯示返回鍵
+          automaticallyImplyLeading: !widget.embedded,
         ),
         body: const Center(child: Text('請先登入')),
       );
@@ -107,8 +111,10 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isPickingImage ? '選擇相簿中的圖片作為縮圖' : '我的相簿'),
-        automaticallyImplyLeading: !widget.embedded, // ✅ 核心：獨立開啟才有返回鍵
+        title: Text(widget.isPickingImage
+            ? (widget.allowMultiple ? '選擇素材圖片' : '選擇縮圖')
+            : '我的相簿'), // 根據 allowMultiple 調整標題
+        automaticallyImplyLeading: !widget.embedded,
         actions: [
           // 只有在非選擇模式下才顯示新增/刪除按鈕
           if (!widget.isPickingImage && _selectedAlbumIds.isNotEmpty)
@@ -172,15 +178,18 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
               return GestureDetector(
                 onTap: () {
                   if (widget.isPickingImage) {
-                    _selectImageFromAlbum(albumId, albumTitle);
+                    // 在圖片選擇模式下，點擊相簿後進入 AlbumPage 進行圖片選擇
+                    _navigateToAlbumAndPick(albumId, albumTitle);
                   } else {
+                    // 非選擇模式下，正常進入 AlbumPage 瀏覽相簿
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => AlbumPage(
                           albumId: albumId,
                           albumName: albumTitle,
-                          isPickingImage: false,
+                          isPickingImage: false, // 瀏覽模式
+                          allowMultiple: false,   // 瀏覽模式不需要多選
                         ),
                       ),
                     );

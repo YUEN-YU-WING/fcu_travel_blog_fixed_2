@@ -1,14 +1,14 @@
-// lib/pages/create_travel_article_page.dart (修改部分)
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'dart:io';
-import 'package:google_maps_flutter/google_maps_flutter.dart'; // 引入 LatLng
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // 用於顯示網絡圖片
+import 'package:firebase_auth/firebase_auth.dart'; // 用於檢查登入狀態
+
 import '../models/travel_article_data.dart';
 import '../services/openai_service.dart';
-import '../services/location_service.dart'; // 引入 LocationService
+import '../services/location_service.dart';
 import 'ai_edit_travel_article_page.dart';
+import '../album_folder_page.dart'; // 引入你的 AlbumFolderPage
 
 class CreateTravelArticlePage extends StatefulWidget {
   const CreateTravelArticlePage({super.key});
@@ -25,20 +25,18 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     userDescription: '',
   );
 
-  final TextEditingController _placeNameInputController = TextEditingController(); // 用於地名輸入
+  final TextEditingController _placeNameInputController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
-  final ImagePicker _picker = ImagePicker();
   bool _isGeneratingAIContent = false;
-  bool _isSearchingPlace = false; // 新增：表示是否正在搜索地點
+  bool _isSearchingPlace = false;
 
-  XFile? _thumbnailImageFile;
-  List<XFile> _materialImageFiles = [];
+  String? _selectedThumbnailUrl;
+  // 移除 _thumbnailFileName，因為它對 AI 生成和保存文章不是必須的
+  List<String> _selectedMaterialImageUrls = [];
 
   @override
   void initState() {
     super.initState();
-    // 確保 LocationService 在這裡被初始化，以防萬一
-    // 更好的做法是在 main.dart 中應用啟動時初始化一次
     LocationService.initialize();
   }
 
@@ -49,25 +47,8 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     super.dispose();
   }
 
-  Future<String?> _uploadImage(XFile imageFile) async {
-    // ... (保持不變) ...
-    try {
-      final String fileName = '${DateTime.now().millisecondsSinceEpoch}_${imageFile.name}';
-      final storageRef = FirebaseStorage.instance.ref().child('travel_article_images/$fileName');
-      final uploadTask = await storageRef.putFile(File(imageFile.path));
-      final imageUrl = await uploadTask.ref.getDownloadURL();
-      return imageUrl;
-    } catch (e) {
-      print('Error uploading image: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('圖片上傳失敗: $e')),
-      );
-      return null;
-    }
-  }
-
-  // 修改：根據地名搜索地點並更新 _articleData
   Future<void> _searchPlace() async {
+    // ... (保持不變) ...
     if (_placeNameInputController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('請輸入地名')),
@@ -87,7 +68,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         setState(() {
           _articleData.placeName = result['placeName'];
           _articleData.address = result['address'];
-          // 注意：Firestore 的 GeoPoint 類型與 google_maps_flutter 的 LatLng 不同，需要轉換
           final LatLng latLng = result['location'];
           _articleData.location = GeoPoint(latLng.latitude, latLng.longitude);
         });
@@ -116,12 +96,27 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     }
   }
 
+  // 使用你提供的 _pickThumbnail 邏輯
   Future<void> _pickThumbnail() async {
-    // ... (保持不變) ...
-    final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請先登入才能選擇圖片')),
+      );
+      return;
+    }
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AlbumFolderPage(isPickingImage: true, allowMultiple: false), // 傳遞 allowMultiple 為 false
+      ),
+    );
+
+    if (result != null && result is Map<String, dynamic>) {
       setState(() {
-        _thumbnailImageFile = pickedFile;
+        _selectedThumbnailUrl = result['imageUrl'] as String?;
+        // _thumbnailFileName = result['fileName'] as String?; // 不需要保存文件名
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('縮圖已選擇')),
@@ -129,51 +124,70 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     }
   }
 
+  // 為素材圖片設計的選擇邏輯，假設 AlbumFolderPage 支持多選
   Future<void> _pickMaterialImages() async {
-    // ... (保持不變) ...
-    final List<XFile> pickedFiles = await _picker.pickMultiImage();
-    if (pickedFiles.isNotEmpty) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請先登入才能選擇圖片')),
+      );
+      return;
+    }
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AlbumFolderPage(isPickingImage: true, allowMultiple: true), // 傳遞 allowMultiple 為 true
+      ),
+    );
+
+    // 處理 AlbumFolderPage 返回的多選結果
+    if (result != null && result is List<Map<String, dynamic>>) {
       setState(() {
-        _materialImageFiles.addAll(pickedFiles);
+        _selectedMaterialImageUrls = result.map((item) => item['imageUrl'] as String).toList();
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已選擇 ${_materialImageFiles.length} 張素材圖片')),
+        SnackBar(content: Text('已選擇 ${_selectedMaterialImageUrls.length} 張素材圖片')),
+      );
+    } else if (result != null && result is Map<String, dynamic>) {
+      // 兼容 AlbumFolderPage 在某些情況下可能只返回單張圖片（如果它不是完全多選的）
+      setState(() {
+        _selectedMaterialImageUrls = [result['imageUrl'] as String];
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已選擇 1 張素材圖片')),
       );
     }
   }
 
+
   Future<void> _generateAIArticle() async {
     if (!_formKey.currentState!.validate()) {
-      // 如果當前步驟的表單驗證失敗，則不繼續
       return;
     }
+
+    // 驗證圖片是否已選擇 (可選，根據你的需求)
+    // if (_selectedThumbnailUrl == null) {
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     const SnackBar(content: Text('請選擇縮圖。')),
+    //   );
+    //   return;
+    // }
+    // if (_selectedMaterialImageUrls.isEmpty) {
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     const SnackBar(content: Text('請選擇至少一張素材圖片。')),
+    //   );
+    //   return;
+    // }
 
     setState(() {
       _isGeneratingAIContent = true;
     });
 
     try {
-      // 1. 上傳縮圖
-      String? thumbnailUrl;
-      if (_thumbnailImageFile != null) {
-        thumbnailUrl = await _uploadImage(_thumbnailImageFile!);
-        if (thumbnailUrl == null) {
-          throw Exception('縮圖上傳失敗。');
-        }
-      }
-      _articleData.thumbnailUrl = thumbnailUrl;
+      _articleData.thumbnailUrl = _selectedThumbnailUrl;
+      _articleData.materialImageUrls = _selectedMaterialImageUrls;
 
-      // 2. 上傳素材圖片
-      List<String> uploadedMaterialUrls = [];
-      for (XFile imageFile in _materialImageFiles) {
-        String? url = await _uploadImage(imageFile);
-        if (url != null) {
-          uploadedMaterialUrls.add(url);
-        }
-      }
-      _articleData.materialImageUrls = uploadedMaterialUrls;
-
-      // 3. 調用 OpenAI 服務生成 HTML
       final String generatedHtml = await OpenAIService.generateTravelArticleHtml(
         userDescription: _articleData.userDescription,
         placeName: _articleData.placeName ?? '未知地點',
@@ -214,7 +228,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         currentStep: _currentStep,
         onStepContinue: () {
           final isLastStep = _currentStep == getSteps().length - 1;
-          if (_formKey.currentState!.validate()) { // 驗證當前步驟的表單
+          if (_formKey.currentState!.validate()) {
             if (isLastStep) {
               _generateAIArticle();
             } else {
@@ -269,7 +283,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       isActive: _currentStep >= 0,
       title: const Text('選擇地點'),
       content: Form(
-        key: _formKey, // 使用表單鍵來驗證
+        key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -289,7 +303,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
                   onPressed: _searchPlace,
                 ),
               ),
-              onFieldSubmitted: (_) => _searchPlace(), // 回車鍵觸發搜索
+              onFieldSubmitted: (_) => _searchPlace(),
               validator: (value) {
                 if (_articleData.placeName == null || _articleData.placeName!.isEmpty) {
                   return '請搜索並選擇一個地點。';
@@ -302,7 +316,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  //Text('地點名稱: ${_articleData.placeName}', style: const TextStyle(fontWeight: FontWeight.bold)),
                   Text('地址: ${_articleData.address ?? '未知'}'),
                   Text('經緯度: ${_articleData.location?.latitude.toStringAsFixed(4) ?? ''}, ${_articleData.location?.longitude.toStringAsFixed(4) ?? ''}'),
                   const SizedBox(height: 10),
@@ -315,15 +328,23 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         ),
       ),
     ),
-    // 其他步驟保持不變...
     Step(
       state: _currentStep > 1 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 1,
       title: const Text('選擇縮圖'),
       content: Column(
         children: [
-          _thumbnailImageFile != null
-              ? Image.file(File(_thumbnailImageFile!.path), height: 150)
+          _selectedThumbnailUrl != null
+              ? CachedNetworkImage(
+            imageUrl: _selectedThumbnailUrl!,
+            height: 150,
+            fit: BoxFit.cover,
+            placeholder: (context, url) => Container(color: Colors.grey[300], height: 150),
+            errorWidget: (context, url, error) => Container(
+              color: Colors.grey[200], height: 150,
+              child: const Icon(Icons.broken_image, color: Colors.grey),
+            ),
+          )
               : Container(
             height: 150,
             width: double.infinity,
@@ -333,7 +354,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
           ElevatedButton.icon(
             onPressed: _pickThumbnail,
             icon: const Icon(Icons.image),
-            label: const Text('選擇縮圖'),
+            label: const Text('從相簿選擇縮圖'),
           ),
         ],
       ),
@@ -344,16 +365,24 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       title: const Text('選擇素材圖片'),
       content: Column(
         children: [
-          if (_materialImageFiles.isNotEmpty)
+          if (_selectedMaterialImageUrls.isNotEmpty)
             SizedBox(
               height: 100,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
-                itemCount: _materialImageFiles.length,
+                itemCount: _selectedMaterialImageUrls.length,
                 itemBuilder: (context, index) {
                   return Padding(
                     padding: const EdgeInsets.all(4.0),
-                    child: Image.file(File(_materialImageFiles[index].path), width: 80, height: 80, fit: BoxFit.cover),
+                    child: CachedNetworkImage(
+                      imageUrl: _selectedMaterialImageUrls[index],
+                      width: 80, height: 80, fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(color: Colors.grey[300]),
+                      errorWidget: (context, url, error) => Container(
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.broken_image, color: Colors.grey),
+                      ),
+                    ),
                   );
                 },
               ),
@@ -368,7 +397,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
           ElevatedButton.icon(
             onPressed: _pickMaterialImages,
             icon: const Icon(Icons.photo_library),
-            label: const Text('選擇素材圖片'),
+            label: const Text('從相簿選擇素材圖片'),
           ),
         ],
       ),
