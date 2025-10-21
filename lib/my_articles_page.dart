@@ -1,11 +1,8 @@
-// lib/my_articles_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class MyArticlesPage extends StatelessWidget {
-  /// 在後台右側嵌入時請設為 true，如：const MyArticlesPage(embedded: true)
-  /// 獨立開頁（一般 push）保持預設 false 會顯示系統返回鍵
   final bool embedded;
 
   const MyArticlesPage({super.key, this.embedded = false});
@@ -32,7 +29,6 @@ class MyArticlesPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('我的文章'),
-        // ✅ 核心：在後台嵌入時不顯示返回鍵；獨立開頁才顯示
         automaticallyImplyLeading: !embedded,
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -56,6 +52,7 @@ class MyArticlesPage extends StatelessWidget {
             itemBuilder: (context, index) {
               final doc = docs[index];
               final data = doc.data() as Map<String, dynamic>? ?? {};
+              final articleId = doc.id; // 獲取文章 ID
               final title = data['title'] ?? '';
               final content = data['content'] ?? '';
 
@@ -66,20 +63,43 @@ class MyArticlesPage extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                trailing: const Icon(Icons.chevron_right),
+                // 新增刪除按鈕
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () {
+                    // 顯示確認對話框
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('確認刪除'),
+                        content: Text('你確定要刪除文章「$title」嗎？'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context), // 取消
+                            child: const Text('取消'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context); // 關閉對話框
+                              _deleteArticle(context, articleId); // 執行刪除
+                            },
+                            child: const Text('刪除', style: TextStyle(color: Colors.red)),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 onTap: () async {
-                  // 跳轉到編輯頁，帶入文章內容
                   await Navigator.pushNamed(
                     context,
                     '/edit_article',
                     arguments: {
-                      'articleId': doc.id,
+                      'articleId': articleId,
                       'initialTitle': title,
-                      // ✅ 這裡用 `content` 才能對上 EditArticlePage.fromRouteArguments
                       'content': content,
                     },
                   );
-                  // StreamBuilder 會自動反映資料更新，不需手動刷新
                 },
               );
             },
@@ -88,12 +108,25 @@ class MyArticlesPage extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          // 跳轉到新增頁（無初始資料）
           await Navigator.pushNamed(context, '/edit_article');
         },
         tooltip: '新增文章',
         child: const Icon(Icons.add),
       ),
     );
+  }
+
+  // 刪除文章的邏輯
+  Future<void> _deleteArticle(BuildContext context, String articleId) async {
+    try {
+      await FirebaseFirestore.instance.collection('articles').doc(articleId).delete();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('文章已刪除')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('刪除失敗: $e')),
+      );
+    }
   }
 }

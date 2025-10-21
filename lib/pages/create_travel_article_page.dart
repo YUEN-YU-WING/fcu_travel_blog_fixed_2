@@ -31,7 +31,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   bool _isSearchingPlace = false;
 
   String? _selectedThumbnailUrl;
-  // 移除 _thumbnailFileName，因為它對 AI 生成和保存文章不是必須的
   List<String> _selectedMaterialImageUrls = [];
 
   @override
@@ -48,55 +47,66 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   }
 
   Future<void> _searchPlace() async {
-    // ... (保持不變) ...
-    if (_placeNameInputController.text.isEmpty) {
+    final userInputPlaceName = _placeNameInputController.text.trim(); // 獲取用戶輸入並去除空白
+
+    if (userInputPlaceName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('請輸入地名')),
       );
+      // 仍然需要更新 _articleData.placeName 以觸發 validator
+      setState(() {
+        _articleData.placeName = null;
+        _articleData.address = null;
+        _articleData.location = null;
+      });
       return;
     }
 
+    // 首先，直接使用用戶輸入作為 _articleData.placeName
     setState(() {
-      _isSearchingPlace = true;
+      _articleData.placeName = userInputPlaceName; // <-- 直接使用用戶輸入
+      _isSearchingPlace = true; // 表示正在後台搜索地址和經緯度
     });
+
 
     try {
       final Map<String, dynamic>? result =
-      await LocationService.searchPlaceByName(_placeNameInputController.text);
+      await LocationService.searchPlaceByName(userInputPlaceName); // 仍然嘗試搜索以獲取地址和經緯度
 
       if (result != null) {
         setState(() {
-          _articleData.placeName = result['placeName'];
+          // 只更新地址和經緯度，不覆蓋用戶輸入的地名
           _articleData.address = result['address'];
           final LatLng latLng = result['location'];
           _articleData.location = GeoPoint(latLng.latitude, latLng.longitude);
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('地點已載入：${_articleData.placeName}')),
+          SnackBar(content: Text('地點資訊已載入：${result['address']}')),
         );
       } else {
         setState(() {
-          _articleData.placeName = null;
+          // 如果沒有找到地點資訊，清空地址和經緯度
           _articleData.address = null;
           _articleData.location = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未能找到該地點的資訊，請檢查地名。')),
+          const SnackBar(content: Text('未能找到該地點的地址或經緯度資訊。')),
         );
       }
     } catch (e) {
       print("Error searching place: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('搜索地點時發生錯誤: $e')),
+        SnackBar(content: Text('搜索地點資訊時發生錯誤: $e')),
       );
     } finally {
       setState(() {
         _isSearchingPlace = false;
       });
+      // 在搜索完成後，再次觸發表單驗證，確保用戶輸入的地名被正確設置
+      _formKey.currentState?.validate();
     }
   }
 
-  // 使用你提供的 _pickThumbnail 邏輯
   Future<void> _pickThumbnail() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -109,14 +119,13 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const AlbumFolderPage(isPickingImage: true, allowMultiple: false), // 傳遞 allowMultiple 為 false
+        builder: (context) => const AlbumFolderPage(isPickingImage: true, allowMultiple: false),
       ),
     );
 
     if (result != null && result is Map<String, dynamic>) {
       setState(() {
         _selectedThumbnailUrl = result['imageUrl'] as String?;
-        // _thumbnailFileName = result['fileName'] as String?; // 不需要保存文件名
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('縮圖已選擇')),
@@ -124,7 +133,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     }
   }
 
-  // 為素材圖片設計的選擇邏輯，假設 AlbumFolderPage 支持多選
   Future<void> _pickMaterialImages() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -137,11 +145,10 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const AlbumFolderPage(isPickingImage: true, allowMultiple: true), // 傳遞 allowMultiple 為 true
+        builder: (context) => const AlbumFolderPage(isPickingImage: true, allowMultiple: true),
       ),
     );
 
-    // 處理 AlbumFolderPage 返回的多選結果
     if (result != null && result is List<Map<String, dynamic>>) {
       setState(() {
         _selectedMaterialImageUrls = result.map((item) => item['imageUrl'] as String).toList();
@@ -150,12 +157,11 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         SnackBar(content: Text('已選擇 ${_selectedMaterialImageUrls.length} 張素材圖片')),
       );
     } else if (result != null && result is Map<String, dynamic>) {
-      // 兼容 AlbumFolderPage 在某些情況下可能只返回單張圖片（如果它不是完全多選的）
       setState(() {
         _selectedMaterialImageUrls = [result['imageUrl'] as String];
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已選擇 1 張素材圖片')),
+        const SnackBar(content: Text('已選擇 1 張素材圖片')),
       );
     }
   }
@@ -166,20 +172,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       return;
     }
 
-    // 驗證圖片是否已選擇 (可選，根據你的需求)
-    // if (_selectedThumbnailUrl == null) {
-    //   ScaffoldMessenger.of(context).showSnackBar(
-    //     const SnackBar(content: Text('請選擇縮圖。')),
-    //   );
-    //   return;
-    // }
-    // if (_selectedMaterialImageUrls.isEmpty) {
-    //   ScaffoldMessenger.of(context).showSnackBar(
-    //     const SnackBar(content: Text('請選擇至少一張素材圖片。')),
-    //   );
-    //   return;
-    // }
-
     setState(() {
       _isGeneratingAIContent = true;
     });
@@ -188,9 +180,10 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       _articleData.thumbnailUrl = _selectedThumbnailUrl;
       _articleData.materialImageUrls = _selectedMaterialImageUrls;
 
+      // 確保這裡使用 _articleData.placeName，它現在直接來源於用戶輸入
       final String generatedHtml = await OpenAIService.generateTravelArticleHtml(
         userDescription: _articleData.userDescription,
-        placeName: _articleData.placeName ?? '未知地點',
+        placeName: _articleData.placeName ?? _placeNameInputController.text.trim(), // fallback 到輸入框
         materialImageUrls: _articleData.materialImageUrls,
       );
       _articleData.generatedHtmlContent = generatedHtml;
@@ -227,8 +220,9 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         type: StepperType.vertical,
         currentStep: _currentStep,
         onStepContinue: () {
-          final isLastStep = _currentStep == getSteps().length - 1;
+          // 在繼續下一步之前，先觸發表單驗證
           if (_formKey.currentState!.validate()) {
+            final isLastStep = _currentStep == getSteps().length - 1;
             if (isLastStep) {
               _generateAIArticle();
             } else {
@@ -304,26 +298,43 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
                 ),
               ),
               onFieldSubmitted: (_) => _searchPlace(),
+              onChanged: (value) {
+                // 當用戶輸入改變時，直接更新 _articleData.placeName
+                // 並將地址和經緯度重置，等待用戶點擊搜索按鈕
+                setState(() {
+                  _articleData.placeName = value.trim();
+                  _articleData.address = null;
+                  _articleData.location = null;
+                });
+                _formKey.currentState?.validate(); // 實時驗證
+              },
               validator: (value) {
-                if (_articleData.placeName == null || _articleData.placeName!.isEmpty) {
-                  return '請搜索並選擇一個地點。';
+                // 驗證器只檢查用戶輸入的地名是否為空
+                if (value == null || value.trim().isEmpty) {
+                  return '請輸入一個地名。';
                 }
                 return null;
               },
             ),
             const SizedBox(height: 10),
+            // 這裡顯示用戶輸入的地名，以及後台搜索到的地址和經緯度 (如果有)
             if (_articleData.placeName != null && _articleData.placeName!.isNotEmpty)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('地址: ${_articleData.address ?? '未知'}'),
-                  Text('經緯度: ${_articleData.location?.latitude.toStringAsFixed(4) ?? ''}, ${_articleData.location?.longitude.toStringAsFixed(4) ?? ''}'),
+                  Text('您輸入的地名: ${_articleData.placeName}'),
+                  if (_articleData.address != null && _articleData.address!.isNotEmpty)
+                    Text('匹配到的地址: ${_articleData.address}'),
+                  if (_articleData.location != null)
+                    Text('匹配到的經緯度: ${_articleData.location?.latitude.toStringAsFixed(4) ?? ''}, ${_articleData.location?.longitude.toStringAsFixed(4) ?? ''}'),
+                  if (_articleData.address == null && !_isSearchingPlace)
+                    const Text('未能找到該地點的地址或經緯度資訊。', style: TextStyle(color: Colors.orange)),
                   const SizedBox(height: 10),
-                  const Text('請確認地點資訊是否正確。')
+                  const Text('此處顯示的「您輸入的地名」將用於遊記文章。'),
                 ],
               )
             else if (!_isSearchingPlace)
-              const Text('請輸入地名並點擊搜索按鈕', style: TextStyle(color: Colors.grey)),
+              const Text('請輸入地名並點擊搜索按鈕以獲取額外資訊', style: TextStyle(color: Colors.grey)),
           ],
         ),
       ),
@@ -428,7 +439,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       state: _currentStep > 4 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 4,
       title: const Text('AI 協助編輯'),
-      content: const Text('點擊 "AI 協助編輯" 按鈕，讓 AI 為你生成遊記草稿。'),
+      content: const Text('點擊 "AI 協助編輯" 按鈕，讓 AI 為你生成遊記草稿，可能會花費數分鐘'),
     ),
   ];
 }

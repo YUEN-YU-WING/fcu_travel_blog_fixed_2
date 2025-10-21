@@ -1,4 +1,3 @@
-// lib/album_folder_page.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -26,7 +25,7 @@ class AlbumFolderPage extends StatefulWidget {
 class _AlbumFolderPageState extends State<AlbumFolderPage> {
   Set<String> _selectedAlbumIds = {};
   User? _currentUser;
-  final TextEditingController _newAlbumNameController = TextEditingController(); // 新增：用於新增相簿名稱
+  final TextEditingController _newAlbumNameController = TextEditingController();
 
   @override
   void initState() {
@@ -36,7 +35,7 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
 
   @override
   void dispose() {
-    _newAlbumNameController.dispose(); // 釋放控制器
+    _newAlbumNameController.dispose();
     super.dispose();
   }
 
@@ -63,12 +62,11 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
         'ownerUid': user.uid,
         'createdAt': FieldValue.serverTimestamp(),
         'photoCount': 0,
-        // 'coverUrl': null, // 初始沒有封面圖，可以不設定或設為 null
       });
 
-      _newAlbumNameController.clear(); // 清空輸入框
+      _newAlbumNameController.clear();
       if (!mounted) return;
-      Navigator.of(context).pop(); // 關閉對話框
+      Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('相簿 "$albumName" 已建立！')),
       );
@@ -80,7 +78,6 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
     }
   }
 
-  // 顯示新增相簿的對話框
   void _showCreateAlbumDialog() {
     showDialog(
       context: context,
@@ -92,13 +89,13 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
             decoration: const InputDecoration(
               hintText: '輸入相簿名稱',
             ),
-            autofocus: true, // 自動聚焦
+            autofocus: true,
           ),
           actions: [
             TextButton(
               onPressed: () {
-                _newAlbumNameController.clear(); // 清空輸入框
-                Navigator.of(context).pop(); // 關閉對話框
+                _newAlbumNameController.clear();
+                Navigator.of(context).pop();
               },
               child: const Text('取消'),
             ),
@@ -112,49 +109,89 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
     );
   }
 
-  Future<void> _deleteSelectedAlbums(List<QueryDocumentSnapshot> docs) async {
+  // 刪除選取的相簿及其所有照片
+  Future<void> _deleteSelectedAlbumsConfirmed(List<QueryDocumentSnapshot> allAlbums) async {
     final user = _currentUser;
     if (user == null) return;
 
-    final albumsToDelete = docs.where((doc) => _selectedAlbumIds.contains(doc.id)).toList();
+    // 篩選出目前選中的相簿文檔
+    final albumsToDelete = allAlbums.where((doc) => _selectedAlbumIds.contains(doc.id)).toList();
 
-    for (final albumDoc in albumsToDelete) {
-      final albumId = albumDoc.id;
-
-      // 刪除相簿底下所有照片（Firestore 與 Storage）
-      final photosSnap = await FirebaseFirestore.instance
-          .collection('photos')
-          .where('albumId', isEqualTo: albumId)
-          .where('ownerUid', isEqualTo: user.uid)
-          .get();
-
-      for (final photoDoc in photosSnap.docs) {
-        final data = photoDoc.data();
-        final storagePath = data['storagePath'] as String?;
-        try {
-          if (storagePath != null) {
-            final storageRef = FirebaseStorage.instance.ref().child(storagePath);
-            await storageRef.delete();
-          }
-        } catch (_) {
-          // 允許 Storage 沒有檔案
-        }
-        await FirebaseFirestore.instance.collection('photos').doc(photoDoc.id).delete();
-      }
-
-      // 刪除相簿本身
-      await FirebaseFirestore.instance.collection('albums').doc(albumId).delete();
+    if (albumsToDelete.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('沒有選取任何相簿')),
+      );
+      return;
     }
 
-    setState(() {
-      _selectedAlbumIds.clear();
-    });
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已刪除${albumsToDelete.length}個相簿及其相片')),
+    final isConfirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('刪除相簿'),
+        content: Text('確定要刪除選取的 ${_selectedAlbumIds.length} 個相簿及其所有照片嗎？此操作無法復原。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('刪除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
     );
+
+    if (isConfirm != true) {
+      return; // 如果取消刪除，則直接返回
+    }
+
+    try {
+      for (final albumDoc in albumsToDelete) {
+        final albumId = albumDoc.id;
+
+        // 1. 刪除相簿底下所有照片（Firestore 與 Storage）
+        final photosSnap = await FirebaseFirestore.instance
+            .collection('photos')
+            .where('albumId', isEqualTo: albumId)
+            .where('ownerUid', isEqualTo: user.uid)
+            .get();
+
+        for (final photoDoc in photosSnap.docs) {
+          final data = photoDoc.data();
+          final storagePath = data['storagePath'] as String?;
+          try {
+            if (storagePath != null && storagePath.isNotEmpty) {
+              final storageRef = FirebaseStorage.instance.ref().child(storagePath);
+              await storageRef.delete();
+            }
+          } catch (e) {
+            // 如果 Storage 中沒有檔案，FirebaseStorage 會拋出異常，這裡捕獲並忽略
+            // print('刪除 Storage 檔案失敗或檔案不存在: ${e.toString()}');
+          }
+          await FirebaseFirestore.instance.collection('photos').doc(photoDoc.id).delete();
+        }
+
+        // 2. 刪除相簿本身
+        await FirebaseFirestore.instance.collection('albums').doc(albumId).delete();
+      }
+
+      setState(() {
+        _selectedAlbumIds.clear(); // 清空選取狀態
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已刪除 ${albumsToDelete.length} 個相簿及其所有照片')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('刪除失敗: $e')),
+      );
+    }
   }
+
 
   Future<void> _navigateToAlbumAndPick(String albumId, String albumName) async {
     final result = await Navigator.push(
@@ -193,23 +230,29 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
             : '我的相簿'),
         automaticallyImplyLeading: !widget.embedded,
         actions: [
-          // 只有在非選擇模式下才顯示刪除/新增按鈕
           if (!widget.isPickingImage) ...[
+            // 刪除按鈕只在有選取相簿時顯示
             if (_selectedAlbumIds.isNotEmpty)
               IconButton(
-                icon: const Icon(Icons.delete),
+                icon: const Icon(Icons.delete, color: Colors.red), // 使用紅色強調刪除
                 tooltip: '刪除選取的相簿',
-                onPressed: () {
-                  // 這個 action 需要 albums 列表，實際刪除交給底下 StreamBuilder 內的浮動條來做
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('長按選擇相簿後，請在畫面下方的刪除提示中確認刪除。')),
-                  );
+                onPressed: () async {
+                  // 在這裡需要傳入 albums 列表，所以不能直接呼叫 _deleteSelectedAlbumsConfirmed
+                  // 我們會通過 StreamBuilder 獲取最新的 albums 列表，然後傳遞給它
+                  // 由於這個是 AppBar 的按鈕，我們需要稍微調整
+                  // 我們讓它觸發一個標記，然後在 StreamBuilder 裡判斷並執行
+                  // 為了簡化，直接在按鈕點擊時獲取當前數據快照
+                  final currentSnapshot = await FirebaseFirestore.instance
+                      .collection('albums')
+                      .where('ownerUid', isEqualTo: _currentUser!.uid)
+                      .get();
+                  await _deleteSelectedAlbumsConfirmed(currentSnapshot.docs);
                 },
               ),
             IconButton(
               icon: const Icon(Icons.add),
               tooltip: '新增相簿',
-              onPressed: _showCreateAlbumDialog, // 調用新增相簿對話框
+              onPressed: _showCreateAlbumDialog,
             ),
           ],
         ],
@@ -232,7 +275,7 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Text('您還沒有任何相簿。'),
-                  if (!widget.isPickingImage) // 非選擇模式下才顯示新增相簿的提示或按鈕
+                  if (!widget.isPickingImage)
                     Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: ElevatedButton.icon(
@@ -267,9 +310,20 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
 
               return GestureDetector(
                 onTap: () {
-                  if (widget.isPickingImage) {
+                  if (_selectedAlbumIds.isNotEmpty) { // 如果已經進入選取模式，則點擊切換選取狀態
+                    setState(() {
+                      if (isSelected) {
+                        _selectedAlbumIds.remove(albumId);
+                      } else {
+                        _selectedAlbumIds.add(albumId);
+                      }
+                      if (_selectedAlbumIds.isEmpty) { // 如果全部取消選取，則退出選取模式
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                      }
+                    });
+                  } else if (widget.isPickingImage) { // 如果是選擇模式，且沒有選取任何相簿，則導航到相簿
                     _navigateToAlbumAndPick(albumId, albumTitle);
-                  } else {
+                  } else { // 正常模式，且沒有選取任何相簿，則導航到相簿
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -292,39 +346,6 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
                       _selectedAlbumIds.add(albumId);
                     }
                   });
-
-                  if (_selectedAlbumIds.isNotEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('已選取 ${_selectedAlbumIds.length} 個相簿'),
-                        action: SnackBarAction(
-                          label: '刪除',
-                          onPressed: () async {
-                            final isConfirm = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('刪除相簿'),
-                                content: Text('確定要刪除選取的${_selectedAlbumIds.length}個相簿及其所有照片嗎？'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, false),
-                                    child: const Text('取消'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    child: const Text('刪除'),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (isConfirm == true) {
-                              await _deleteSelectedAlbums(albums);
-                            }
-                          },
-                        ),
-                      ),
-                    );
-                  }
                 }
                     : null,
                 child: Card(
