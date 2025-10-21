@@ -27,7 +27,7 @@ class _AlbumPageState extends State<AlbumPage> {
   final _picker = ImagePicker(); // 即使是 Firebase 相簿選擇，也可以保留用於上傳新圖片
   bool _isUploading = false;
   Set<String> _selectedPhotoIds = {}; // 用於追蹤已選中的圖片 ID
-  List<Map<String, dynamic>> _selectedPhotoData = []; // 用於儲存已選中圖片的 URL 和 fileName
+  final List<Map<String, dynamic>> _selectedPhotoData = []; // 用於儲存已選中圖片的 URL 和 fileName
 
 
   Future<void> _pickAndUploadImage() async {

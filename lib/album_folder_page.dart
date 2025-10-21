@@ -8,9 +8,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'album_page.dart'; // 引入你的 AlbumPage
 
 class AlbumFolderPage extends StatefulWidget {
-  final bool isPickingImage;   // 是否在圖片選擇模式
-  final bool embedded;         // 是否嵌入後台（嵌入時不顯示返回鍵）
-  final bool allowMultiple;    // 是否允許選擇多張圖片 (此參數應該主要傳遞給 AlbumPage)
+  final bool isPickingImage;
+  final bool embedded;
+  final bool allowMultiple;
 
   const AlbumFolderPage({
     super.key,
@@ -26,11 +26,90 @@ class AlbumFolderPage extends StatefulWidget {
 class _AlbumFolderPageState extends State<AlbumFolderPage> {
   Set<String> _selectedAlbumIds = {};
   User? _currentUser;
+  final TextEditingController _newAlbumNameController = TextEditingController(); // 新增：用於新增相簿名稱
 
   @override
   void initState() {
     super.initState();
     _currentUser = FirebaseAuth.instance.currentUser;
+  }
+
+  @override
+  void dispose() {
+    _newAlbumNameController.dispose(); // 釋放控制器
+    super.dispose();
+  }
+
+  Future<void> _createAlbum() async {
+    final user = _currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請先登入才能建立相簿')),
+      );
+      return;
+    }
+
+    final albumName = _newAlbumNameController.text.trim();
+    if (albumName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('相簿名稱不能為空')),
+      );
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance.collection('albums').add({
+        'title': albumName,
+        'ownerUid': user.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+        'photoCount': 0,
+        // 'coverUrl': null, // 初始沒有封面圖，可以不設定或設為 null
+      });
+
+      _newAlbumNameController.clear(); // 清空輸入框
+      if (!mounted) return;
+      Navigator.of(context).pop(); // 關閉對話框
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('相簿 "$albumName" 已建立！')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('建立相簿失敗: $e')),
+      );
+    }
+  }
+
+  // 顯示新增相簿的對話框
+  void _showCreateAlbumDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('新增相簿'),
+          content: TextField(
+            controller: _newAlbumNameController,
+            decoration: const InputDecoration(
+              hintText: '輸入相簿名稱',
+            ),
+            autofocus: true, // 自動聚焦
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                _newAlbumNameController.clear(); // 清空輸入框
+                Navigator.of(context).pop(); // 關閉對話框
+              },
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: _createAlbum,
+              child: const Text('建立'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _deleteSelectedAlbums(List<QueryDocumentSnapshot> docs) async {
@@ -77,7 +156,6 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
     );
   }
 
-  // 修改：選相簿 → 進入 AlbumPage 選圖片；回傳後把結果 pop 回呼叫者
   Future<void> _navigateToAlbumAndPick(String albumId, String albumName) async {
     final result = await Navigator.push(
       context,
@@ -85,13 +163,12 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
         builder: (context) => AlbumPage(
           albumId: albumId,
           albumName: albumName,
-          isPickingImage: widget.isPickingImage, // 傳遞選擇模式
-          allowMultiple: widget.allowMultiple,   // 傳遞多選模式
+          isPickingImage: widget.isPickingImage,
+          allowMultiple: widget.allowMultiple,
         ),
       ),
     );
 
-    // 如果 AlbumPage 有返回結果，就直接將結果 pop 回去
     if (result != null) {
       Navigator.pop(context, result);
     }
@@ -113,31 +190,28 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
       appBar: AppBar(
         title: Text(widget.isPickingImage
             ? (widget.allowMultiple ? '選擇素材圖片' : '選擇縮圖')
-            : '我的相簿'), // 根據 allowMultiple 調整標題
+            : '我的相簿'),
         automaticallyImplyLeading: !widget.embedded,
         actions: [
-          // 只有在非選擇模式下才顯示新增/刪除按鈕
-          if (!widget.isPickingImage && _selectedAlbumIds.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete),
-              tooltip: '刪除選取的相簿',
-              onPressed: () {
-                // 這個 action 需要 albums 列表，實際刪除交給底下 StreamBuilder 內的浮動條來做
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('長按選擇相簿後，請在畫面下方的刪除提示中確認刪除。')),
-                );
-              },
-            ),
-          if (!widget.isPickingImage)
+          // 只有在非選擇模式下才顯示刪除/新增按鈕
+          if (!widget.isPickingImage) ...[
+            if (_selectedAlbumIds.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.delete),
+                tooltip: '刪除選取的相簿',
+                onPressed: () {
+                  // 這個 action 需要 albums 列表，實際刪除交給底下 StreamBuilder 內的浮動條來做
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('長按選擇相簿後，請在畫面下方的刪除提示中確認刪除。')),
+                  );
+                },
+              ),
             IconButton(
               icon: const Icon(Icons.add),
               tooltip: '新增相簿',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('新增相簿功能待實現')),
-                );
-              },
+              onPressed: _showCreateAlbumDialog, // 調用新增相簿對話框
             ),
+          ],
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -153,7 +227,23 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
             return const Center(child: CircularProgressIndicator());
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('您還沒有任何相簿。'));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('您還沒有任何相簿。'),
+                  if (!widget.isPickingImage) // 非選擇模式下才顯示新增相簿的提示或按鈕
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: ElevatedButton.icon(
+                        onPressed: _showCreateAlbumDialog,
+                        icon: const Icon(Icons.create_new_folder),
+                        label: const Text('建立第一個相簿'),
+                      ),
+                    ),
+                ],
+              ),
+            );
           }
 
           final albums = snapshot.data!.docs;
@@ -178,18 +268,16 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
               return GestureDetector(
                 onTap: () {
                   if (widget.isPickingImage) {
-                    // 在圖片選擇模式下，點擊相簿後進入 AlbumPage 進行圖片選擇
                     _navigateToAlbumAndPick(albumId, albumTitle);
                   } else {
-                    // 非選擇模式下，正常進入 AlbumPage 瀏覽相簿
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => AlbumPage(
                           albumId: albumId,
                           albumName: albumTitle,
-                          isPickingImage: false, // 瀏覽模式
-                          allowMultiple: false,   // 瀏覽模式不需要多選
+                          isPickingImage: false,
+                          allowMultiple: false,
                         ),
                       ),
                     );

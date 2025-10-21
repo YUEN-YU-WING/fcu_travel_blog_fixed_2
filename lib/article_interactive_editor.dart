@@ -122,7 +122,7 @@ class _ArticleInteractiveEditorState extends State<ArticleInteractiveEditor> {
     for (final img in _images.where((img) => _selectedImageIds.contains(img.id))) {
       final url = await getDownloadUrl(img.storagePath);
       final result = await _visionService.detectLandmarkByUrl(url);
-      if (result != null && result.isNotEmpty) {
+      if (result.isNotEmpty) {
         _landmarkResults[img.id] = result;
       }
     }

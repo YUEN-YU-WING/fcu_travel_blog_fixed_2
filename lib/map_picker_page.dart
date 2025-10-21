@@ -27,10 +27,10 @@ class _MapPickerPageState extends State<MapPickerPage> {
   String? _selectedAddress;
   String? _selectedPlaceName;
   final TextEditingController _searchController = TextEditingController();
-  Set<Marker> _markers = {};
+  final Set<Marker> _markers = {};
 
   List<Map<String, dynamic>> _articles = [];
-  Map<String, BitmapDescriptor> _thumbnailCache = {};
+  final Map<String, BitmapDescriptor> _thumbnailCache = {};
 
   final String _googleMapsApiKey = kIsWeb ? dotenv.env['GOOGLE_MAPS_WEB_API_KEY']! : "";
 

@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:html_editor_enhanced/html_editor.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import 'map_picker_page.dart';

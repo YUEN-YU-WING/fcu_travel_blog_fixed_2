@@ -91,8 +91,8 @@ class MyArticlesPage extends StatelessWidget {
           // 跳轉到新增頁（無初始資料）
           await Navigator.pushNamed(context, '/edit_article');
         },
-        child: const Icon(Icons.add),
         tooltip: '新增文章',
+        child: const Icon(Icons.add),
       ),
     );
   }

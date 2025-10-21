@@ -68,7 +68,7 @@ class _AIUploadPageState extends State<AIUploadPage> {
 
       // 4) 問答互動（有地標才問）
       if ((landmark ?? '').isNotEmpty && landmark != "未知地標") {
-        await _showInteractiveQuestions(landmark!);
+        await _showInteractiveQuestions(landmark);
       }
     } catch (e) {
       if (mounted) {
