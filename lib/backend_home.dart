@@ -13,6 +13,7 @@ import 'album_folder_page.dart';
 import 'map_picker_page.dart';
 import 'public_articles_page.dart';
 import 'pages/create_travel_article_page.dart';
+import 'map_selection_page.dart';
 
 void _goToHome(BuildContext context) {
   Navigator.of(context).pushAndRemoveUntil(
@@ -55,7 +56,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
       const EditArticlePage(embedded: true),
       const MyArticlesPage(embedded: true),
       const AlbumFolderPage(embedded: true),
-      const MapPickerPage(embedded: true),
+      const MapSelectionPage(embedded: true),
       const PublicArticlesPage(embedded: true),
     ];
 
