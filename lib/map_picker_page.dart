@@ -128,19 +128,18 @@ class _MapPickerPageState extends State<MapPickerPage> {
 
   Future<void> _updateMarkers({LatLng? newSelectedLocation}) async {
     _markers.clear();
+
     for (var article in _articles) {
       final GeoPoint geoPoint = article['location'];
       final String articleId = article['id'];
       final String? thumbnailUrl = article['thumbnailImageUrl'];
 
       BitmapDescriptor markerIcon;
-      // if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
-      //   markerIcon = await _getCustomMarkerIcon(thumbnailUrl, articleId);
-      // } else {
-      //   markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
-      // }
-
-      markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
+        markerIcon = await _getCustomMarkerIcon(thumbnailUrl, articleId);
+      } else {
+        markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      }
 
       _markers.add(
         Marker(

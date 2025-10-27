@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../models/travel_article_data.dart';
 import '../models/travel_route_collection.dart';
+import '../article_detail_page.dart'; // 引入文章詳情頁面，可以在點擊時跳轉
 
 class CreateEditCollectionPage extends StatefulWidget {
   final TravelRouteCollection? collection; // 如果傳入 collection，表示編輯模式
@@ -23,6 +24,7 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   List<TravelArticleData> _allUserArticles = [];
+  // _selectedArticleIds 的順序將決定顯示的數字順序
   List<String> _selectedArticleIds = [];
   bool _isLoadingArticles = true;
 
@@ -31,6 +33,7 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
     super.initState();
     if (widget.collection != null) {
       _nameController.text = widget.collection!.name;
+      // 初始化時，如果編輯現有集合，直接從集合中獲取已選中的 ID
       _selectedArticleIds = List.from(widget.collection!.articleIds);
     }
     _loadAllUserArticles();
@@ -94,7 +97,7 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
         // 創建新集合
         final newCollection = TravelRouteCollection(
           name: name,
-          articleIds: _selectedArticleIds,
+          articleIds: _selectedArticleIds, // 使用 _selectedArticleIds 的順序
           ownerUid: currentUser.uid,
         );
         await _firestore.collection('travelRouteCollections').add(newCollection.toFirestore());
@@ -104,7 +107,7 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
       } else {
         // 編輯現有集合
         widget.collection!.name = name;
-        widget.collection!.articleIds = _selectedArticleIds;
+        widget.collection!.articleIds = _selectedArticleIds; // 使用 _selectedArticleIds 的順序
         widget.collection!.updatedAt = DateTime.now();
         await _firestore.collection('travelRouteCollections').doc(widget.collection!.id).update(widget.collection!.toFirestore());
         ScaffoldMessenger.of(context).showSnackBar(
@@ -118,6 +121,22 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
         SnackBar(content: Text('保存行程集合失敗: $e')),
       );
     }
+  }
+
+  // 點擊遊記卡片時的處理邏輯
+  void _toggleArticleSelection(TravelArticleData article) {
+    if (article.id == null) return;
+
+    setState(() {
+      final isSelected = _selectedArticleIds.contains(article.id!);
+      if (isSelected) {
+        // 如果已經選中，則移除
+        _selectedArticleIds.remove(article.id!);
+      } else {
+        // 如果未選中，則添加
+        _selectedArticleIds.add(article.id!);
+      }
+    });
   }
 
   @override
@@ -175,7 +194,9 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
               itemCount: _allUserArticles.length,
               itemBuilder: (context, index) {
                 final article = _allUserArticles[index];
-                final isSelected = _selectedArticleIds.contains(article.id);
+                final bool isSelected = _selectedArticleIds.contains(article.id);
+                // 獲取選中順序的索引，如果未選中則為 -1
+                final int selectedOrder = isSelected ? _selectedArticleIds.indexOf(article.id!) + 1 : -1;
 
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -185,20 +206,13 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
                     side: isSelected ? const BorderSide(color: Colors.blueAccent, width: 2) : BorderSide.none,
                   ),
                   child: InkWell(
-                    onTap: () {
-                      setState(() {
-                        if (isSelected) {
-                          _selectedArticleIds.remove(article.id!);
-                        } else {
-                          _selectedArticleIds.add(article.id!);
-                        }
-                      });
-                    },
+                    onTap: () => _toggleArticleSelection(article), // 點擊卡片切換選中狀態
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
+                          // 顯示縮略圖或默認圖標
                           if (article.thumbnailUrl != null && article.thumbnailUrl!.isNotEmpty)
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
@@ -242,16 +256,31 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
                               ],
                             ),
                           ),
+                          // 顯示順序數字標籤
+                          if (isSelected)
+                            Container(
+                              width: 24,
+                              height: 24,
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: const BoxDecoration(
+                                color: Colors.blueAccent,
+                                shape: BoxShape.circle,
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                '$selectedOrder',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          // Checkbox 保持不變，用於視覺確認
                           Checkbox(
                             value: isSelected,
                             onChanged: (bool? value) {
-                              setState(() {
-                                if (value == true) {
-                                  _selectedArticleIds.add(article.id!);
-                                } else {
-                                  _selectedArticleIds.remove(article.id!);
-                                }
-                              });
+                              _toggleArticleSelection(article); // 調用統一的切換方法
                             },
                           ),
                         ],
