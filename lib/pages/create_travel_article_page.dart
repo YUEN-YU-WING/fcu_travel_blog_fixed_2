@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // 用於顯示網絡圖片
-import 'package:firebase_auth/firebase_auth.dart'; // 用於檢查登入狀態
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 import '../models/travel_article_data.dart';
 import '../services/openai_service.dart';
 import '../services/location_service.dart';
 import 'ai_edit_travel_article_page.dart';
-import '../album_folder_page.dart'; // 引入你的 AlbumFolderPage
+import '../album_folder_page.dart';
 
 class CreateTravelArticlePage extends StatefulWidget {
   const CreateTravelArticlePage({super.key});
@@ -29,6 +31,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   final TextEditingController _descriptionController = TextEditingController();
   bool _isGeneratingAIContent = false;
   bool _isSearchingPlace = false;
+  bool _isDetectingLandmark = false;
 
   String? _selectedThumbnailUrl;
   List<String> _selectedMaterialImageUrls = [];
@@ -47,13 +50,12 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   }
 
   Future<void> _searchPlace() async {
-    final userInputPlaceName = _placeNameInputController.text.trim(); // 獲取用戶輸入並去除空白
+    final userInputPlaceName = _placeNameInputController.text.trim();
 
     if (userInputPlaceName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('請輸入地名')),
       );
-      // 仍然需要更新 _articleData.placeName 以觸發 validator
       setState(() {
         _articleData.placeName = null;
         _articleData.address = null;
@@ -62,20 +64,18 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       return;
     }
 
-    // 首先，直接使用用戶輸入作為 _articleData.placeName
     setState(() {
-      _articleData.placeName = userInputPlaceName; // <-- 直接使用用戶輸入
-      _isSearchingPlace = true; // 表示正在後台搜索地址和經緯度
+      _articleData.placeName = userInputPlaceName;
+      _isSearchingPlace = true;
     });
 
 
     try {
       final Map<String, dynamic>? result =
-      await LocationService.searchPlaceByName(userInputPlaceName); // 仍然嘗試搜索以獲取地址和經緯度
+      await LocationService.searchPlaceByName(userInputPlaceName);
 
       if (result != null) {
         setState(() {
-          // 只更新地址和經緯度，不覆蓋用戶輸入的地名
           _articleData.address = result['address'];
           final LatLng latLng = result['location'];
           _articleData.location = GeoPoint(latLng.latitude, latLng.longitude);
@@ -85,7 +85,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         );
       } else {
         setState(() {
-          // 如果沒有找到地點資訊，清空地址和經緯度
           _articleData.address = null;
           _articleData.location = null;
         });
@@ -102,8 +101,35 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       setState(() {
         _isSearchingPlace = false;
       });
-      // 在搜索完成後，再次觸發表單驗證，確保用戶輸入的地名被正確設置
       _formKey.currentState?.validate();
+    }
+  }
+
+  Future<String?> _callLandmarkDetectionService(String imageUrl) async {
+    setState(() {
+      _isDetectingLandmark = true;
+    });
+    try {
+      final response = await http.post(
+        Uri.parse('http://localhost:8080/landmark'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'imageUrl': imageUrl}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['landmark'] as String?;
+      } else {
+        print('Error calling landmark detection service: ${response.statusCode} - ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Exception calling landmark detection service: $e');
+      return null;
+    } finally {
+      setState(() {
+        _isDetectingLandmark = false;
+      });
     }
   }
 
@@ -124,12 +150,39 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     );
 
     if (result != null && result is Map<String, dynamic>) {
+      final String? pickedImageUrl = result['imageUrl'] as String?;
       setState(() {
-        _selectedThumbnailUrl = result['imageUrl'] as String?;
+        _selectedThumbnailUrl = pickedImageUrl;
+        // 清空之前的地名和地點資訊，等待識別或手動輸入
+        _placeNameInputController.text = '';
+        _articleData.placeName = null;
+        _articleData.address = null;
+        _articleData.location = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('縮圖已選擇')),
       );
+
+      if (pickedImageUrl != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('正在識別圖片中的地標...')),
+        );
+        final String? landmark = await _callLandmarkDetectionService(pickedImageUrl);
+        if (landmark != null && landmark.isNotEmpty) {
+          setState(() {
+            _placeNameInputController.text = landmark;
+            _articleData.placeName = landmark;
+          });
+          _searchPlace();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已識別到地標：$landmark，正在自動搜索地點資訊。')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('未能識別到圖片中的地標，請手動輸入地名。')),
+          );
+        }
+      }
     }
   }
 
@@ -166,7 +219,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     }
   }
 
-
   Future<void> _generateAIArticle() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -180,10 +232,9 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       _articleData.thumbnailUrl = _selectedThumbnailUrl;
       _articleData.materialImageUrls = _selectedMaterialImageUrls;
 
-      // 確保這裡使用 _articleData.placeName，它現在直接來源於用戶輸入
       final String generatedHtml = await OpenAIService.generateTravelArticleHtml(
         userDescription: _articleData.userDescription,
-        placeName: _articleData.placeName ?? _placeNameInputController.text.trim(), // fallback 到輸入框
+        placeName: _articleData.placeName ?? _placeNameInputController.text.trim(),
         materialImageUrls: _articleData.materialImageUrls,
       );
       _articleData.generatedHtmlContent = generatedHtml;
@@ -221,7 +272,9 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         currentStep: _currentStep,
         onStepContinue: () {
           // 在繼續下一步之前，先觸發表單驗證
-          if (_formKey.currentState!.validate()) {
+          // 注意：如果第一個步驟是選縮圖，FormState 驗證可能會只在後面步驟有效
+          // 如果第一步的「縮圖」是可選的，那就不需要在這裡強制驗證
+          if (_formKey.currentState?.validate() ?? true) { // 如果沒有form key，則視為通過
             final isLastStep = _currentStep == getSteps().length - 1;
             if (isLastStep) {
               _generateAIArticle();
@@ -230,6 +283,11 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
                 _currentStep += 1;
               });
             }
+          } else {
+            // 如果驗證失敗，保持當前步驟並顯示錯誤
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('請完成當前步驟的必填項目')),
+            );
           }
         },
         onStepCancel: () {
@@ -272,77 +330,11 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   }
 
   List<Step> getSteps() => [
+    // 步驟 1: 選擇縮圖 (並自動識別地標)
     Step(
       state: _currentStep > 0 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 0,
-      title: const Text('選擇地點'),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextFormField(
-              controller: _placeNameInputController,
-              decoration: InputDecoration(
-                labelText: '輸入地名',
-                hintText: '例如：台中歌劇院',
-                border: const OutlineInputBorder(),
-                suffixIcon: _isSearchingPlace
-                    ? const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-                    : IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: _searchPlace,
-                ),
-              ),
-              onFieldSubmitted: (_) => _searchPlace(),
-              onChanged: (value) {
-                // 當用戶輸入改變時，直接更新 _articleData.placeName
-                // 並將地址和經緯度重置，等待用戶點擊搜索按鈕
-                setState(() {
-                  _articleData.placeName = value.trim();
-                  _articleData.address = null;
-                  _articleData.location = null;
-                });
-                _formKey.currentState?.validate(); // 實時驗證
-              },
-              validator: (value) {
-                // 驗證器只檢查用戶輸入的地名是否為空
-                if (value == null || value.trim().isEmpty) {
-                  return '請輸入一個地名。';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 10),
-            // 這裡顯示用戶輸入的地名，以及後台搜索到的地址和經緯度 (如果有)
-            if (_articleData.placeName != null && _articleData.placeName!.isNotEmpty)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('您輸入的地名: ${_articleData.placeName}'),
-                  if (_articleData.address != null && _articleData.address!.isNotEmpty)
-                    Text('匹配到的地址: ${_articleData.address}'),
-                  if (_articleData.location != null)
-                    Text('匹配到的經緯度: ${_articleData.location?.latitude.toStringAsFixed(4) ?? ''}, ${_articleData.location?.longitude.toStringAsFixed(4) ?? ''}'),
-                  if (_articleData.address == null && !_isSearchingPlace)
-                    const Text('未能找到該地點的地址或經緯度資訊。', style: TextStyle(color: Colors.orange)),
-                  const SizedBox(height: 10),
-                  const Text('此處顯示的「您輸入的地名」將用於遊記文章。'),
-                ],
-              )
-            else if (!_isSearchingPlace)
-              const Text('請輸入地名並點擊搜索按鈕以獲取額外資訊', style: TextStyle(color: Colors.grey)),
-          ],
-        ),
-      ),
-    ),
-    Step(
-      state: _currentStep > 1 ? StepState.complete : StepState.indexed,
-      isActive: _currentStep >= 1,
-      title: const Text('選擇縮圖'),
+      title: const Text('選擇縮圖（選填，可自動識別地點）'),
       content: Column(
         children: [
           _selectedThumbnailUrl != null
@@ -367,9 +359,83 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
             icon: const Icon(Icons.image),
             label: const Text('從相簿選擇縮圖'),
           ),
+          if (_isDetectingLandmark)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8.0),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          if (_isDetectingLandmark)
+            const Text('正在識別圖片中的地標...', style: TextStyle(color: Colors.blue)),
+          const SizedBox(height: 10),
+          const Text('選擇縮圖後，AI 會嘗試自動識別地標並填入下一步驟的地名。'),
         ],
       ),
     ),
+    // 步驟 2: 選擇地點 (手動輸入或確認 AI 識別結果)
+    Step(
+      state: _currentStep > 1 ? StepState.complete : StepState.indexed,
+      isActive: _currentStep >= 1,
+      title: const Text('確認或輸入地點'),
+      content: Form(
+        key: _formKey, // 這裡仍然使用 formKey 進行驗證
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextFormField(
+              controller: _placeNameInputController,
+              decoration: InputDecoration(
+                labelText: '輸入地名',
+                hintText: '例如：台中歌劇院',
+                border: const OutlineInputBorder(),
+                suffixIcon: _isSearchingPlace
+                    ? const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: _searchPlace,
+                ),
+              ),
+              onFieldSubmitted: (_) => _searchPlace(),
+              onChanged: (value) {
+                setState(() {
+                  _articleData.placeName = value.trim();
+                  _articleData.address = null;
+                  _articleData.location = null;
+                });
+                _formKey.currentState?.validate();
+              },
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return '請輸入一個地名。';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 10),
+            if (_articleData.placeName != null && _articleData.placeName!.isNotEmpty)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('您輸入的地名: ${_articleData.placeName}'),
+                  if (_articleData.address != null && _articleData.address!.isNotEmpty)
+                    Text('匹配到的地址: ${_articleData.address}'),
+                  if (_articleData.location != null)
+                    Text('匹配到的經緯度: ${_articleData.location?.latitude.toStringAsFixed(4) ?? ''}, ${_articleData.location?.longitude.toStringAsFixed(4) ?? ''}'),
+                  if (_articleData.address == null && !_isSearchingPlace)
+                    const Text('未能找到該地點的地址或經緯度資訊。', style: TextStyle(color: Colors.orange)),
+                  const SizedBox(height: 10),
+                  const Text('此處顯示的「您輸入的地名」將用於遊記文章。'),
+                ],
+              )
+            else if (!_isSearchingPlace)
+              const Text('請輸入地名並點擊搜索按鈕以獲取額外資訊。', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      ),
+    ),
+    // 步驟 3: 選擇素材圖片
     Step(
       state: _currentStep > 2 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 2,
@@ -413,6 +479,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         ],
       ),
     ),
+    // 步驟 4: 描述行程
     Step(
       state: _currentStep > 3 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 3,
@@ -435,6 +502,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         },
       ),
     ),
+    // 步驟 5: AI 協助編輯
     Step(
       state: _currentStep > 4 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 4,

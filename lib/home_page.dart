@@ -314,12 +314,12 @@ class HomePage extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(height: 8.0),
-                                Text(
-                                  content,
-                                  style: const TextStyle(fontSize: 14.0),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                // Text(
+                                //   content,
+                                //   style: const TextStyle(fontSize: 14.0),
+                                //   maxLines: 3,
+                                //   overflow: TextOverflow.ellipsis,
+                                // ),
                                 const SizedBox(height: 12.0),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceAround,
