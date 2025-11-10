@@ -88,7 +88,7 @@ ${imageUrlsAndDescriptionsPrompt}
           'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'gpt-4-turbo-preview',
+          'model': 'gpt-4o-mini',
           'messages': [
             {'role': 'system', 'content': '你是一個專業的旅遊作家和編輯，專門撰寫引人入勝的 HTML 格式旅遊文章。'},
             {'role': 'user', 'content': prompt},
