@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 import '../models/travel_article_data.dart';
-import '../services/openai_service.dart';
+import '../services/openai_service.dart'; // 確保 OpenAIService 有更新以接收新參數
 import '../services/location_service.dart';
 import 'ai_edit_travel_article_page.dart';
 import '../album_folder_page.dart';
@@ -31,10 +31,12 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   final TextEditingController _descriptionController = TextEditingController();
   bool _isGeneratingAIContent = false;
   bool _isSearchingPlace = false;
-  bool _isDetectingLandmark = false;
+  bool _isDetectingLandmark = false; // 用於縮圖識別
+  bool _isDetectingMaterialImages = false; // 新增：用於素材圖片識別
 
   String? _selectedThumbnailUrl;
   List<String> _selectedMaterialImageUrls = [];
+  Map<String, String> _materialImageDescriptions = {}; // 新增：儲存素材圖片的識別內容
 
   @override
   void initState() {
@@ -68,7 +70,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       _articleData.placeName = userInputPlaceName;
       _isSearchingPlace = true;
     });
-
 
     try {
       final Map<String, dynamic>? result =
@@ -105,31 +106,33 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     }
   }
 
-  Future<String?> _callLandmarkDetectionService(String imageUrl) async {
-    setState(() {
-      _isDetectingLandmark = true;
-    });
+  // 稍微修改這個函數，讓它可以處理任何類型的圖片識別，並返回一個通用的描述字串
+  // 假設後端服務會根據圖片內容返回最相關的描述
+  Future<String?> _callImageDetectionService(String imageUrl) async {
     try {
       final response = await http.post(
-        Uri.parse('http://localhost:8080/landmark'),
+        Uri.parse('http://localhost:8080/landmark'), // 後端服務路徑不變，但內部邏輯可能要調整
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'imageUrl': imageUrl}),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return data['landmark'] as String?;
+        // 假設後端會返回一個更通用的 'description' 或 'label' 字段
+        // 如果後端仍然返回 'landmark'，這裡會保持不變
+        final String? detectedContent = data['landmark'] as String?;
+        if (detectedContent != null && detectedContent.isNotEmpty) {
+          return detectedContent;
+        } else {
+          return null;
+        }
       } else {
-        print('Error calling landmark detection service: ${response.statusCode} - ${response.body}');
+        print('Error calling image detection service: ${response.statusCode} - ${response.body}');
         return null;
       }
     } catch (e) {
-      print('Exception calling landmark detection service: $e');
+      print('Exception calling image detection service: $e');
       return null;
-    } finally {
-      setState(() {
-        _isDetectingLandmark = false;
-      });
     }
   }
 
@@ -153,7 +156,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       final String? pickedImageUrl = result['imageUrl'] as String?;
       setState(() {
         _selectedThumbnailUrl = pickedImageUrl;
-        // 清空之前的地名和地點資訊，等待識別或手動輸入
         _placeNameInputController.text = '';
         _articleData.placeName = null;
         _articleData.address = null;
@@ -164,10 +166,17 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       );
 
       if (pickedImageUrl != null) {
+        setState(() {
+          _isDetectingLandmark = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('正在識別圖片中的地標...')),
         );
-        final String? landmark = await _callLandmarkDetectionService(pickedImageUrl);
+        final String? landmark = await _callImageDetectionService(pickedImageUrl); // 使用通用的識別服務
+        setState(() {
+          _isDetectingLandmark = false;
+        });
+
         if (landmark != null && landmark.isNotEmpty) {
           setState(() {
             _placeNameInputController.text = landmark;
@@ -202,22 +211,55 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       ),
     );
 
-    if (result != null && result is List<Map<String, dynamic>>) {
+    List<String> newSelectedUrls = [];
+    if (result != null) {
+      if (result is List<Map<String, dynamic>>) {
+        newSelectedUrls = result.map((item) => item['imageUrl'] as String).toList();
+      } else if (result is Map<String, dynamic>) {
+        newSelectedUrls = [result['imageUrl'] as String];
+      }
+    }
+
+    if (newSelectedUrls.isNotEmpty) {
       setState(() {
-        _selectedMaterialImageUrls = result.map((item) => item['imageUrl'] as String).toList();
+        _selectedMaterialImageUrls = newSelectedUrls;
+        _isDetectingMaterialImages = true; // 開始識別素材圖片
+        _materialImageDescriptions.clear(); // 清空之前的識別結果
       });
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已選擇 ${_selectedMaterialImageUrls.length} 張素材圖片')),
+        SnackBar(content: Text('已選擇 ${_selectedMaterialImageUrls.length} 張素材圖片，正在識別內容...')),
       );
-    } else if (result != null && result is Map<String, dynamic>) {
+
+      // 逐一識別素材圖片
+      for (String imageUrl in _selectedMaterialImageUrls) {
+        final String? description = await _callImageDetectionService(imageUrl);
+        if (description != null && description.isNotEmpty) {
+          setState(() {
+            _materialImageDescriptions[imageUrl] = description;
+          });
+          print('圖片 $imageUrl 識別結果: $description'); // 為了調試
+        }
+      }
+
       setState(() {
-        _selectedMaterialImageUrls = [result['imageUrl'] as String];
+        _isDetectingMaterialImages = false; // 識別完成
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('素材圖片識別完成！共識別出 ${_materialImageDescriptions.length} 張圖片的內容。')),
+      );
+    } else {
+      setState(() {
+        _selectedMaterialImageUrls = [];
+        _materialImageDescriptions.clear();
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已選擇 1 張素材圖片')),
+        const SnackBar(content: Text('未選擇任何素材圖片。')),
       );
     }
   }
+
 
   Future<void> _generateAIArticle() async {
     if (!_formKey.currentState!.validate()) {
@@ -232,10 +274,17 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       _articleData.thumbnailUrl = _selectedThumbnailUrl;
       _articleData.materialImageUrls = _selectedMaterialImageUrls;
 
+      // 將素材圖片的識別結果轉換成一個列表，以便傳遞給 OpenAI 服務
+      final List<String> materialImageDescriptionsList = _selectedMaterialImageUrls.map((url) {
+        return _materialImageDescriptions[url] ?? ''; // 如果沒有識別到，就傳空字串
+      }).where((desc) => desc.isNotEmpty).toList(); // 只傳遞有內容的描述
+
+      // 確保 OpenAIService.generateTravelArticleHtml 接收這個新參數
       final String generatedHtml = await OpenAIService.generateTravelArticleHtml(
         userDescription: _articleData.userDescription,
         placeName: _articleData.placeName ?? _placeNameInputController.text.trim(),
         materialImageUrls: _articleData.materialImageUrls,
+        materialImageDescriptions: materialImageDescriptionsList, // 新增：傳遞素材圖片的識別內容
       );
       _articleData.generatedHtmlContent = generatedHtml;
 
@@ -271,10 +320,11 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         type: StepperType.vertical,
         currentStep: _currentStep,
         onStepContinue: () {
-          // 在繼續下一步之前，先觸發表單驗證
-          // 注意：如果第一個步驟是選縮圖，FormState 驗證可能會只在後面步驟有效
-          // 如果第一步的「縮圖」是可選的，那就不需要在這裡強制驗證
-          if (_formKey.currentState?.validate() ?? true) { // 如果沒有form key，則視為通過
+          if (_currentStep == 0) { // 如果是第一步（選擇縮圖），且縮圖是可選的，直接下一步
+            setState(() {
+              _currentStep += 1;
+            });
+          } else if (_formKey.currentState?.validate() ?? true) {
             final isLastStep = _currentStep == getSteps().length - 1;
             if (isLastStep) {
               _generateAIArticle();
@@ -284,7 +334,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
               });
             }
           } else {
-            // 如果驗證失敗，保持當前步驟並顯示錯誤
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('請完成當前步驟的必填項目')),
             );
@@ -330,7 +379,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   }
 
   List<Step> getSteps() => [
-    // 步驟 1: 選擇縮圖 (並自動識別地標)
     Step(
       state: _currentStep > 0 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 0,
@@ -371,13 +419,12 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         ],
       ),
     ),
-    // 步驟 2: 選擇地點 (手動輸入或確認 AI 識別結果)
     Step(
       state: _currentStep > 1 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 1,
       title: const Text('確認或輸入地點'),
       content: Form(
-        key: _formKey, // 這裡仍然使用 formKey 進行驗證
+        key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -435,11 +482,10 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         ),
       ),
     ),
-    // 步驟 3: 選擇素材圖片
     Step(
       state: _currentStep > 2 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 2,
-      title: const Text('選擇素材圖片'),
+      title: const Text('選擇素材圖片（AI會分析圖片內容）'), // 更改標題
       content: Column(
         children: [
           if (_selectedMaterialImageUrls.isNotEmpty)
@@ -449,16 +495,39 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
                 scrollDirection: Axis.horizontal,
                 itemCount: _selectedMaterialImageUrls.length,
                 itemBuilder: (context, index) {
+                  final String imageUrl = _selectedMaterialImageUrls[index];
+                  final String? description = _materialImageDescriptions[imageUrl];
                   return Padding(
                     padding: const EdgeInsets.all(4.0),
-                    child: CachedNetworkImage(
-                      imageUrl: _selectedMaterialImageUrls[index],
-                      width: 80, height: 80, fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(color: Colors.grey[300]),
-                      errorWidget: (context, url, error) => Container(
-                        color: Colors.grey[200],
-                        child: const Icon(Icons.broken_image, color: Colors.grey),
-                      ),
+                    child: Stack(
+                      alignment: Alignment.bottomCenter,
+                      children: [
+                        CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          width: 80, height: 80, fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(color: Colors.grey[300]),
+                          errorWidget: (context, url, error) => Container(
+                            color: Colors.grey[200],
+                            child: const Icon(Icons.broken_image, color: Colors.grey),
+                          ),
+                        ),
+                        if (description != null && description.isNotEmpty)
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              color: Colors.black54,
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              child: Text(
+                                description,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontSize: 10),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   );
                 },
@@ -476,10 +545,16 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
             icon: const Icon(Icons.photo_library),
             label: const Text('從相簿選擇素材圖片'),
           ),
+          if (_isDetectingMaterialImages) // 素材圖片識別時顯示進度指示器
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8.0),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          if (_isDetectingMaterialImages)
+            const Text('正在識別素材圖片內容...', style: TextStyle(color: Colors.blue)),
         ],
       ),
     ),
-    // 步驟 4: 描述行程
     Step(
       state: _currentStep > 3 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 3,
@@ -502,7 +577,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         },
       ),
     ),
-    // 步驟 5: AI 協助編輯
     Step(
       state: _currentStep > 4 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 4,

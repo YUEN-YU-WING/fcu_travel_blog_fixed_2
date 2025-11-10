@@ -1,4 +1,4 @@
-// lib/models/travel_article_data.dart (示例，請根據你的實際模型調整)
+// lib/models/travel_article_data.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TravelArticleData {
@@ -11,6 +11,7 @@ class TravelArticleData {
   String? generatedHtmlContent;
   String? thumbnailUrl;
   List<String> materialImageUrls;
+  List<String> materialImageDescriptions; // 新增：用於儲存素材圖片的識別內容
   DateTime? createdAt;
   DateTime? updatedAt;
   String? ownerUid;
@@ -25,6 +26,7 @@ class TravelArticleData {
     this.generatedHtmlContent,
     this.thumbnailUrl,
     this.materialImageUrls = const [],
+    this.materialImageDescriptions = const [], // 初始化為空列表
     this.createdAt,
     this.updatedAt,
     this.ownerUid,
@@ -37,11 +39,14 @@ class TravelArticleData {
       title: data['title'],
       placeName: data['placeName'],
       address: data['address'],
-      location: data['location'] is Map ? GeoPoint(data['location']['latitude'], data['location']['longitude']) : data['location'] as GeoPoint?,
+      location: data['location'] is Map
+          ? GeoPoint(data['location']['latitude'], data['location']['longitude'])
+          : data['location'] as GeoPoint?,
       userDescription: data['userDescription'] ?? '',
       generatedHtmlContent: data['generatedHtmlContent'],
-      thumbnailUrl: data['thumbnailImageUrl'],
+      thumbnailUrl: data['thumbnailImageUrl'], // 注意這裡你用的是 'thumbnailImageUrl'
       materialImageUrls: List<String>.from(data['materialImageUrls'] ?? []),
+      materialImageDescriptions: List<String>.from(data['materialImageDescriptions'] ?? []), // 從 Firestore 讀取
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
       ownerUid: data['ownerUid'],
@@ -56,8 +61,9 @@ class TravelArticleData {
       'location': location,
       'userDescription': userDescription,
       'generatedHtmlContent': generatedHtmlContent,
-      'thumbnailUrl': thumbnailUrl,
+      'thumbnailUrl': thumbnailUrl, // 注意這裡你用的是 'thumbnailUrl'
       'materialImageUrls': materialImageUrls,
+      'materialImageDescriptions': materialImageDescriptions, // 儲存到 Firestore
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : FieldValue.serverTimestamp(),
       'ownerUid': ownerUid,
