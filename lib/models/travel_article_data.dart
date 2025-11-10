@@ -7,14 +7,19 @@ class TravelArticleData {
   String? placeName;
   String? address;
   GeoPoint? location;
-  String userDescription;
+  // String userDescription; // 這個字段可以保留作為總結，或者移除
   String? generatedHtmlContent;
   String? thumbnailUrl;
   List<String> materialImageUrls;
-  List<String> materialImageDescriptions; // 新增：用於儲存素材圖片的識別內容
+  List<String> materialImageDescriptions;
   DateTime? createdAt;
   DateTime? updatedAt;
   String? ownerUid;
+
+  // 新增結構化提示詞字段
+  String? companions; // 同行者
+  String? activities; // 活動或體驗
+  String? moodOrPurpose; // 心情或目的
 
   TravelArticleData({
     this.id,
@@ -22,14 +27,18 @@ class TravelArticleData {
     this.placeName,
     this.address,
     this.location,
-    required this.userDescription,
+    // required this.userDescription, // 如果要移除，這裡也要改
     this.generatedHtmlContent,
     this.thumbnailUrl,
     this.materialImageUrls = const [],
-    this.materialImageDescriptions = const [], // 初始化為空列表
+    this.materialImageDescriptions = const [],
     this.createdAt,
     this.updatedAt,
     this.ownerUid,
+    // 初始化新增字段
+    this.companions,
+    this.activities,
+    this.moodOrPurpose,
   });
 
   factory TravelArticleData.fromFirestore(DocumentSnapshot doc) {
@@ -42,14 +51,18 @@ class TravelArticleData {
       location: data['location'] is Map
           ? GeoPoint(data['location']['latitude'], data['location']['longitude'])
           : data['location'] as GeoPoint?,
-      userDescription: data['userDescription'] ?? '',
+      // userDescription: data['userDescription'] ?? '', // 如果移除，這裡也要改
       generatedHtmlContent: data['generatedHtmlContent'],
-      thumbnailUrl: data['thumbnailImageUrl'], // 注意這裡你用的是 'thumbnailImageUrl'
+      thumbnailUrl: data['thumbnailImageUrl'],
       materialImageUrls: List<String>.from(data['materialImageUrls'] ?? []),
-      materialImageDescriptions: List<String>.from(data['materialImageDescriptions'] ?? []), // 從 Firestore 讀取
+      materialImageDescriptions: List<String>.from(data['materialImageDescriptions'] ?? []),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
       ownerUid: data['ownerUid'],
+      // 從 Firestore 讀取新增字段
+      companions: data['companions'],
+      activities: data['activities'],
+      moodOrPurpose: data['moodOrPurpose'],
     );
   }
 
@@ -59,14 +72,18 @@ class TravelArticleData {
       'placeName': placeName,
       'address': address,
       'location': location,
-      'userDescription': userDescription,
+      // 'userDescription': userDescription, // 如果移除，這裡也要改
       'generatedHtmlContent': generatedHtmlContent,
-      'thumbnailUrl': thumbnailUrl, // 注意這裡你用的是 'thumbnailUrl'
+      'thumbnailUrl': thumbnailUrl,
       'materialImageUrls': materialImageUrls,
-      'materialImageDescriptions': materialImageDescriptions, // 儲存到 Firestore
+      'materialImageDescriptions': materialImageDescriptions,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : FieldValue.serverTimestamp(),
       'ownerUid': ownerUid,
+      // 儲存新增字段
+      'companions': companions,
+      'activities': activities,
+      'moodOrPurpose': moodOrPurpose,
     };
   }
 }

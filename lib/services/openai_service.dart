@@ -1,23 +1,25 @@
 // lib/services/openai_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // 確保你的 .env 設定正確
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class OpenAIService {
   static final String? _apiKey = dotenv.env['OPENAI_API_KEY'];
   static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
 
   static Future<String> generateTravelArticleHtml({
-    required String userDescription,
     required String placeName,
-    required List<String> materialImageUrls, // 傳遞圖片 URL 列表
-    List<String> materialImageDescriptions = const [], // 新增：傳遞圖片識別內容列表
+    required List<String> materialImageUrls,
+    List<String> materialImageDescriptions = const [],
+    // 移除 userDescription，新增結構化參數
+    String? companions,
+    String? activities,
+    String? moodOrPurpose,
   }) async {
     if (_apiKey == null) {
       throw Exception('OPENAI_API_KEY is not set in .env file');
     }
 
-    // 將圖片 URL 列表和其對應的識別內容轉換為一個易於 AI 理解的字符串
     String imageUrlsAndDescriptionsPrompt = '';
     if (materialImageUrls.isNotEmpty) {
       imageUrlsAndDescriptionsPrompt = '\n\n以下是您選擇的素材圖片資訊，請在文章中適當位置插入這些圖片的`<img>`標籤：\n';
@@ -32,27 +34,50 @@ class OpenAIService {
       }
     }
 
-    final String prompt = '''
-你是一個專業的旅遊作家和編輯。請根據以下用戶提供的地點、行程描述和素材圖片資訊，為其生成一篇引人入勝、詳細且富有情感的旅遊文章，並以 HTML 格式輸出。
+    // 根據結構化輸入構建用戶行程描述
+    String structuredDescription = '';
+    if (companions != null && companions.isNotEmpty) {
+      structuredDescription += '同行者: $companions\n';
+    }
+    if (activities != null && activities.isNotEmpty) {
+      structuredDescription += '活動或體驗: $activities\n';
+    }
+    if (moodOrPurpose != null && moodOrPurpose.isNotEmpty) {
+      structuredDescription += '旅程心情或目的: $moodOrPurpose\n';
+    }
+    if (structuredDescription.isEmpty) {
+      structuredDescription = '無詳細行程描述。請AI根據地點和圖片自由發揮。';
+    } else {
+      structuredDescription = '以下是用戶提供的旅程細節：\n' + structuredDescription;
+    }
 
-文章應包含：
-1.  一個吸引人的 <h1> 標題。
-2.  多個 <p> 段落，詳細描述行程，包括：
-    *   開頭吸引讀者，點出旅程的獨特之處。
-    *   介紹地點背景、特色和亮點。
-    *   詳細描述在該地點進行的活動、看到的風景、品嚐的美食、遇到的趣事或感受。
-    *   結尾總結感受，提供實用建議或展望。
-3.  適當使用 <h2> 或 <h3> 標題來劃分文章結構，讓內容更易讀。
-4.  在文章中適當的位置插入提供的圖片。對於每張圖片，外層要有`<p>`。請務必使用完整的 `<img>` 標籤，並在 `src` 屬性中填入圖片的 URL，在 `alt` 屬性中提供這張圖片的詳細中文描述。圖片描述應與圖片內容和文章上下文緊密相關。
-5.  文章語氣應積極、生動，富有感染力，彷彿親身經歷。
-6.  請確保文章內容豐富、細節具體，避免空泛的陳述。
+
+    final String prompt = '''
+你是一位經驗豐富的旅遊作家與內容編輯，擅長以真實情感與生動細節撰寫 HTML 格式的旅遊文章。請根據以下資訊生成一篇自然、有故事感的遊記文章。
+
+文章要求：
+1.  使用 HTML 格式撰寫，包含：
+    *   一個吸引人的 <h1> 標題。
+    *   多個 <p> 段落與必要的 <h2> 或 <h3> 標題。
+2.  文章結構建議：
+    *   開頭：描寫出發動機或同行者氛圍（例如情侶、家人、朋友、獨旅）。
+    *   中段：詳細描寫活動過程、看到的風景、氣味、聲音、食物與人文互動。
+    *   結尾：分享心情變化、旅程意義或給未來旅人建議。
+3.  插入圖片時，請：
+    *   在自然語意中插入，外層使用 <p> 包裹。
+    *   使用完整的 <img> 標籤，`src` 為圖片 URL，`alt` 為該圖片的具體中文敘述。
+    *   讓圖片描述自然融入上下文。
+4.  文字語氣：
+    *   溫暖、生動、真實，有「我真的去過」的感覺。
+    *   避免誇張形容詞與重複句。
+5.  內容應豐富具體，避免過於概括或重複。
 
 **用戶提供的資訊：**
 地點名稱: ${placeName}
-行程描述: ${userDescription}
-${imageUrlsAndDescriptionsPrompt} // 使用包含描述的新提示語
+${structuredDescription} // 這裡使用組裝好的結構化描述
+${imageUrlsAndDescriptionsPrompt}
 
-請僅返回 HTML 格式的文章內容，不要包含其他任何額外文字或解釋。
+請直接返回 HTML 格式的完整文章內容，不要使用 Markdown，也不要添加其他解釋。
 ''';
 
     try {
@@ -63,13 +88,13 @@ ${imageUrlsAndDescriptionsPrompt} // 使用包含描述的新提示語
           'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'gpt-4-turbo-preview', // 建議使用 GPT-4 系列模型，因為需要更複雜的理解和生成
+          'model': 'gpt-4-turbo-preview',
           'messages': [
             {'role': 'system', 'content': '你是一個專業的旅遊作家和編輯，專門撰寫引人入勝的 HTML 格式旅遊文章。'},
             {'role': 'user', 'content': prompt},
           ],
-          'temperature': 0.7, // 增加創造性
-          'max_tokens': 4000, // 增加返回內容的最大長度
+          'temperature': 0.8,
+          'max_tokens': 4000,
         }),
       );
 
@@ -77,13 +102,12 @@ ${imageUrlsAndDescriptionsPrompt} // 使用包含描述的新提示語
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         final String htmlContent = data['choices'][0]['message']['content'];
 
-        // AI 可能會給出額外的解釋或Markdown的```html```包裹，嘗試提取純 HTML
         final RegExp htmlOnlyRegExp = RegExp(r'```html\n(.*)\n```', dotAll: true);
         final Match? match = htmlOnlyRegExp.firstMatch(htmlContent);
         if (match != null) {
           return match.group(1)!.trim();
         }
-        return htmlContent.trim(); // 如果沒有```html```包裹，直接返回
+        return htmlContent.trim();
       } else {
         final errorData = jsonDecode(utf8.decode(response.bodyBytes));
         throw Exception('Failed to generate AI article: ${response.statusCode} - ${errorData['error']['message']}');

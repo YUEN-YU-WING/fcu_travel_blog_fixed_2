@@ -24,11 +24,14 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   final TravelArticleData _articleData = TravelArticleData(
-    userDescription: '',
+    //userDescription: '',
   );
 
   final TextEditingController _placeNameInputController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _companionsController = TextEditingController();
+  final TextEditingController _activitiesController = TextEditingController();
+  final TextEditingController _moodOrPurposeController = TextEditingController();
+
   bool _isGeneratingAIContent = false;
   bool _isSearchingPlace = false;
   bool _isDetectingLandmark = false; // 用於縮圖識別
@@ -42,12 +45,23 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
   void initState() {
     super.initState();
     LocationService.initialize();
+    _companionsController.addListener(() {
+      _articleData.companions = _companionsController.text.trim();
+    });
+    _activitiesController.addListener(() {
+      _articleData.activities = _activitiesController.text.trim();
+    });
+    _moodOrPurposeController.addListener(() {
+      _articleData.moodOrPurpose = _moodOrPurposeController.text.trim();
+    });
   }
 
   @override
   void dispose() {
     _placeNameInputController.dispose();
-    _descriptionController.dispose();
+    _companionsController.dispose();
+    _activitiesController.dispose();
+    _moodOrPurposeController.dispose();
     super.dispose();
   }
 
@@ -274,17 +288,20 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
       _articleData.thumbnailUrl = _selectedThumbnailUrl;
       _articleData.materialImageUrls = _selectedMaterialImageUrls;
 
-      // 將素材圖片的識別結果轉換成一個列表，以便傳遞給 OpenAI 服務
-      final List<String> materialImageDescriptionsList = _selectedMaterialImageUrls.map((url) {
-        return _materialImageDescriptions[url] ?? ''; // 如果沒有識別到，就傳空字串
-      }).where((desc) => desc.isNotEmpty).toList(); // 只傳遞有內容的描述
+      // 組裝 materialImageDescriptions 列表到 _articleData
+      _articleData.materialImageDescriptions = _selectedMaterialImageUrls.map((url) {
+        return _materialImageDescriptions[url] ?? '';
+      }).where((desc) => desc.isNotEmpty).toList();
 
-      // 確保 OpenAIService.generateTravelArticleHtml 接收這個新參數
+      // 現在，我們將使用 _articleData 中的結構化提示詞
       final String generatedHtml = await OpenAIService.generateTravelArticleHtml(
-        userDescription: _articleData.userDescription,
         placeName: _articleData.placeName ?? _placeNameInputController.text.trim(),
         materialImageUrls: _articleData.materialImageUrls,
-        materialImageDescriptions: materialImageDescriptionsList, // 新增：傳遞素材圖片的識別內容
+        materialImageDescriptions: _articleData.materialImageDescriptions,
+        // 傳遞新的結構化提示詞
+        companions: _articleData.companions,
+        activities: _articleData.activities,
+        moodOrPurpose: _articleData.moodOrPurpose,
       );
       _articleData.generatedHtmlContent = generatedHtml;
 
@@ -320,11 +337,23 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
         type: StepperType.vertical,
         currentStep: _currentStep,
         onStepContinue: () {
-          if (_currentStep == 0) { // 如果是第一步（選擇縮圖），且縮圖是可選的，直接下一步
-            setState(() {
-              _currentStep += 1;
-            });
-          } else if (_formKey.currentState?.validate() ?? true) {
+          // 這裡的驗證邏輯需要更精確地針對每個步驟的必填項
+          // 對於步驟 4，我們可以檢查至少一個文本框是否有內容，或者都設置為可選
+          bool currentStepIsValid = true;
+          if (_currentStep == 1) { // 地點名稱是必填
+            currentStepIsValid = _formKey.currentState?.validate() ?? false;
+          } else if (_currentStep == 3) { // 行程細節，這裡可以設定為至少填寫一項或全部可選
+            currentStepIsValid = _companionsController.text.trim().isNotEmpty ||
+                _activitiesController.text.trim().isNotEmpty ||
+                _moodOrPurposeController.text.trim().isNotEmpty;
+            if (!currentStepIsValid) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('請至少填寫一個行程細節。')),
+              );
+            }
+          }
+          // 如果當前步驟的驗證通過
+          if (currentStepIsValid) {
             final isLastStep = _currentStep == getSteps().length - 1;
             if (isLastStep) {
               _generateAIArticle();
@@ -333,10 +362,6 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
                 _currentStep += 1;
               });
             }
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('請完成當前步驟的必填項目')),
-            );
           }
         },
         onStepCancel: () {
@@ -558,23 +583,40 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     Step(
       state: _currentStep > 3 ? StepState.complete : StepState.indexed,
       isActive: _currentStep >= 3,
-      title: const Text('描述行程'),
-      content: TextFormField(
-        controller: _descriptionController,
-        maxLines: 5,
-        decoration: const InputDecoration(
-          hintText: '描述你和誰一起去了哪裡，做了什麼，感受如何...',
-          border: OutlineInputBorder(),
-        ),
-        validator: (value) {
-          if (value == null || value.isEmpty) {
-            return '請描述你的行程，這對 AI 生成文章很重要。';
-          }
-          return null;
-        },
-        onChanged: (value) {
-          _articleData.userDescription = value;
-        },
+      title: const Text('描述行程細節 (幫助AI更了解您的旅程)'), // 調整標題
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            controller: _companionsController,
+            decoration: const InputDecoration(
+              labelText: '同行者',
+              hintText: '例如：情侶、家人、朋友、獨自一人',
+              border: OutlineInputBorder(),
+            ),
+            // 不再需要 validator，可以在 onStepContinue 統一檢查
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _activitiesController,
+            decoration: const InputDecoration(
+              labelText: '活動或體驗',
+              hintText: '例如：海邊漫步、品嚐當地美食、參觀博物館、挑戰攀岩',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _moodOrPurposeController,
+            decoration: const InputDecoration(
+              labelText: '旅程心情或目的',
+              hintText: '例如：浪漫、放鬆、探險、學習文化、慶祝紀念日',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text('請盡量提供詳細資訊，AI會根據這些提示生成更豐富的遊記。'),
+        ],
       ),
     ),
     Step(
