@@ -104,6 +104,44 @@ class _EditArticlePageState extends State<EditArticlePage> {
     super.dispose();
   }
 
+  // --- 🔥 新增功能：生成關鍵字索引 (Search Keywords) ---
+  List<String> _generateKeywords(String title, String htmlContent, String placeName) {
+    // 1. 去除 HTML 標籤，只取純文字 (簡單正則，僅供索引使用)
+    String plainTextContent = htmlContent.replaceAll(RegExp(r'<[^>]*>|&[^;]+;'), ' ');
+
+    // 2. 合併所有要搜尋的欄位
+    String text = '$title $placeName $plainTextContent'.toLowerCase();
+
+    Set<String> keywords = {};
+
+    // 3. 針對英文或空格分隔的單詞處理
+    text.split(RegExp(r'\s+')).forEach((word) {
+      if (word.isNotEmpty) keywords.add(word);
+    });
+
+    // 4. 針對中文進行 N-gram 切分 (單字、雙字、三字)
+    // 先移除標點符號，只保留文字
+    String cleanText = text.replaceAll(RegExp(r'[^\w\u4e00-\u9fa5]'), '');
+
+    for (int i = 0; i < cleanText.length; i++) {
+      // 單字 (Unigram) - 允許搜尋單個字
+      keywords.add(cleanText[i]);
+
+      // 雙字詞 (Bigram) - 例如 "台北"
+      if (i + 1 < cleanText.length) {
+        keywords.add(cleanText.substring(i, i + 2));
+      }
+
+      // 三字詞 (Trigram) - 例如 "台北市"
+      if (i + 2 < cleanText.length) {
+        keywords.add(cleanText.substring(i, i + 3));
+      }
+    }
+
+    // 5. 過濾掉空字串或純標點符號
+    return keywords.where((k) => k.isNotEmpty && !RegExp(r'^[.,\/#!$%\^&\*;:{}=\-_`~()。，、？！]+$').hasMatch(k)).toList();
+  }
+
   Future<void> _fetchArticle() async {
     setState(() => _isLoading = true);
     try {
@@ -139,7 +177,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
   Future<void> _saveArticle() async {
     final title = _titleController.text.trim();
     final placeName = _placeNameController.text.trim();
-    final content = await _htmlEditorController.getText();
+    final content = await _htmlEditorController.getText(); // 這是 HTML
     final user = FirebaseAuth.instance.currentUser;
 
     if (title.isEmpty || content.isEmpty || placeName.isEmpty) {
@@ -169,6 +207,9 @@ class _EditArticlePageState extends State<EditArticlePage> {
 
     setState(() => _isLoading = true);
     try {
+      // 🔥 生成關鍵字 (包含標題、地名、去除 HTML 的內容)
+      final keywords = _generateKeywords(title, content, placeName);
+
       final dataToSave = {
         'title': title,
         'content': content,
@@ -178,6 +219,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
         'thumbnailImageUrl': _thumbnailImageUrl,
         'thumbnailFileName': _thumbnailFileName,
         'isPublic': _isPublic,
+        'keywords': keywords, // ✅ 儲存關鍵字陣列
         'updatedAt': FieldValue.serverTimestamp(),
       };
 

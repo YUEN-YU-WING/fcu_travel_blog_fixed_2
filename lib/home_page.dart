@@ -5,10 +5,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'widgets/my_app_bar.dart';
 import 'notifications_page.dart';
 import 'backend_home.dart';
-import 'article_detail_page.dart'; // 引入文章詳情頁面
+import 'article_detail_page.dart';
+import 'friends_list_page.dart';
+import 'friend_profile_page.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  // ✅ 新增：搜尋關鍵字狀態
+  String _searchKeyword = '';
 
   Future<void> _logout(BuildContext context) async {
     try {
@@ -27,7 +37,7 @@ class HomePage extends StatelessWidget {
 
   void _onAvatarTap(BuildContext rootContext) {
     final user = FirebaseAuth.instance.currentUser;
-
+    // ... (保持原有的 BottomSheet 邏輯)
     showModalBottomSheet(
       context: rootContext,
       showDragHandle: true,
@@ -70,6 +80,20 @@ class HomePage extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
+                leading: const Icon(Icons.person),
+                title: const Text('我的個人檔案'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  Future.microtask(() {
+                    Navigator.of(rootContext).push(
+                      MaterialPageRoute(
+                        builder: (_) => FriendProfilePage(friendId: user.uid), // 導航到自己的個人檔案頁面
+                      ),
+                    );
+                  });
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.dashboard_outlined),
                 title: const Text('個人後台'),
                 onTap: () {
@@ -101,6 +125,31 @@ class HomePage extends StatelessWidget {
     return '${dateTime.year}/${dateTime.month}/${dateTime.day} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
+  // ✅ 構建查詢 Stream
+  Stream<QuerySnapshot> _buildArticleStream() {
+    final collection = FirebaseFirestore.instance.collection('articles');
+
+    // 1. 如果沒有搜尋關鍵字，顯示預設列表 (按時間排序)
+    if (_searchKeyword.isEmpty) {
+      return collection
+          .where('isPublic', isEqualTo: true)
+          .orderBy('updatedAt', descending: true)
+          .snapshots();
+    }
+
+    // 2. 如果有搜尋關鍵字
+    // 注意：Firestore 的 array-contains 無法直接與 orderBy('updatedAt') 混用，除非建立複合索引。
+    // 為了避免報錯，這裡我們先不加 orderBy，或者你需要去 Firebase Console 建立索引：
+    // Collection: articles -> Fields: isPublic (Asc/Desc), keywords (Array), updatedAt (Desc)
+    else {
+      return collection
+          .where('isPublic', isEqualTo: true)
+          .where('keywords', arrayContains: _searchKeyword.toLowerCase()) // 確保關鍵字轉小寫
+      // .orderBy('updatedAt', descending: true) // ⚠️ 需要複合索引才能打開
+          .snapshots();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -119,18 +168,15 @@ class HomePage extends StatelessWidget {
             MaterialPageRoute(builder: (_) => const NotificationsPage()),
           );
         },
-        // 新增搜尋框點擊事件
-        onSearchTap: () {
-          print('點擊了搜尋框');
-          // TODO: 導航到搜尋頁面
+        // ✅ 處理搜尋事件
+        onSearch: (keyword) {
+          setState(() {
+            _searchKeyword = keyword;
+          });
+          print('搜尋關鍵字: $_searchKeyword');
         },
-        // 新增中間導覽圖示點擊事件
         onNavIconTap: (index) {
           print('點擊了中間導覽圖示：$index');
-          // TODO: 根據 index 處理不同的導航或操作
-          // 0: 影片
-          // 1: 市集
-          // 2: 主要首頁 (已經在 onPressed 處理了導航邏輯，這裡主要是額外回調)
         },
       ),
       body: Row(
@@ -159,21 +205,11 @@ class HomePage extends StatelessWidget {
                     leading: const Icon(Icons.group),
                     title: const Text('朋友'),
                     onTap: () {
-                      print('點擊了朋友');
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.storefront),
-                    title: const Text('Marketplace'),
-                    onTap: () {
-                      print('點擊了 Marketplace');
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.people),
-                    title: const Text('社團'),
-                    onTap: () {
-                      print('點擊了社團');
+                      // **修改這裡：導航到 FriendsListPage**
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const FriendsListPage()),
+                      );
                     },
                   ),
                   ListTile(
@@ -181,13 +217,6 @@ class HomePage extends StatelessWidget {
                     title: const Text('我的收藏'),
                     onTap: () {
                       print('點擊了我的收藏');
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.event),
-                    title: const Text('活動'),
-                    onTap: () {
-                      print('點擊了活動');
                     },
                   ),
                 ],
@@ -201,11 +230,8 @@ class HomePage extends StatelessWidget {
               color: Colors.grey[200],
               padding: const EdgeInsets.all(16.0),
               child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('articles')
-                    .where('isPublic', isEqualTo: true)
-                    .orderBy('updatedAt', descending: true)
-                    .snapshots(),
+                // ✅ 使用動態構建的 Stream
+                stream: _buildArticleStream(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
                     return Center(child: Text('出錯了: ${snapshot.error}'));
@@ -216,7 +242,30 @@ class HomePage extends StatelessWidget {
                   }
 
                   if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return const Center(child: Text('目前沒有公開文章。'));
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text(
+                            _searchKeyword.isNotEmpty
+                                ? '找不到包含 "$_searchKeyword" 的文章'
+                                : '目前沒有公開文章。',
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                          if (_searchKeyword.isNotEmpty)
+                            TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _searchKeyword = ''; // 清除搜尋
+                                  });
+                                },
+                                child: const Text('顯示所有文章')
+                            )
+                        ],
+                      ),
+                    );
                   }
 
                   return ListView.builder(
@@ -229,7 +278,7 @@ class HomePage extends StatelessWidget {
                       final String authorName = data['authorName'] ?? '匿名作者';
                       final String authorPhotoUrl = data['authorPhotoUrl'] ?? '';
                       final String title = data['title'] ?? '無標題';
-                      final String content = data['content'] ?? '沒有內容';
+                      // final String content = data['content'] ?? '沒有內容';
                       final Timestamp updatedAt = data['updatedAt'] ?? Timestamp.now();
                       final String thumbnailImageUrl = data['thumbnailImageUrl'] ?? '';
 
@@ -290,19 +339,6 @@ class HomePage extends StatelessWidget {
                                           child: const Icon(Icons.broken_image, size: 40, color: Colors.grey),
                                         );
                                       },
-                                      loadingBuilder: (context, child, loadingProgress) {
-                                        if (loadingProgress == null) return child;
-                                        return Container(
-                                          alignment: Alignment.center,
-                                          height: 200,
-                                          color: Colors.grey[300],
-                                          child: CircularProgressIndicator(
-                                            value: loadingProgress.expectedTotalBytes != null
-                                                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                                : null,
-                                          ),
-                                        );
-                                      },
                                     ),
                                   ),
                                 if (thumbnailImageUrl.isNotEmpty) const SizedBox(height: 12.0),
@@ -313,35 +349,23 @@ class HomePage extends StatelessWidget {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const SizedBox(height: 8.0),
-                                // Text(
-                                //   content,
-                                //   style: const TextStyle(fontSize: 14.0),
-                                //   maxLines: 3,
-                                //   overflow: TextOverflow.ellipsis,
-                                // ),
+                                // ... 底部按鈕區塊 (保持原樣)
                                 const SizedBox(height: 12.0),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                                   children: [
                                     TextButton.icon(
-                                      onPressed: () {
-                                        print('點讚');
-                                      },
+                                      onPressed: () {},
                                       icon: const Icon(Icons.thumb_up_alt_outlined),
                                       label: const Text('讚'),
                                     ),
                                     TextButton.icon(
-                                      onPressed: () {
-                                        print('評論');
-                                      },
+                                      onPressed: () {},
                                       icon: const Icon(Icons.comment_outlined),
                                       label: const Text('留言'),
                                     ),
                                     TextButton.icon(
-                                      onPressed: () {
-                                        print('分享');
-                                      },
+                                      onPressed: () {},
                                       icon: const Icon(Icons.share_outlined),
                                       label: const Text('分享'),
                                     ),
@@ -355,91 +379,6 @@ class HomePage extends StatelessWidget {
                     },
                   );
                 },
-              ),
-            ),
-          ),
-          // 右側邊欄
-          Expanded(
-            flex: 3,
-            child: Container(
-              color: Colors.blueGrey[100], // 保持背景色
-              padding: const EdgeInsets.all(16.0), // 添加內邊距
-              child: ListView( // 使用 ListView 讓內容可滾動
-                children: [
-                  // 推薦文章 / 熱門話題
-                  const Text(
-                    '推薦文章',
-                    style: TextStyle(
-                      fontSize: 16.0,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 8.0),
-                  Card(
-                    elevation: 0.5,
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.star_border),
-                      ),
-                      title: const Text('探索 Flutter 最新功能'),
-                      subtitle: const Text('由 Admin'),
-                      onTap: () {
-                        print('點擊了推薦文章 1');
-                        // TODO: 導航到特定推薦文章
-                      },
-                    ),
-                  ),
-                  Card(
-                    elevation: 0.5,
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.local_fire_department),
-                      ),
-                      title: const Text('2023 年最佳程式設計語言'),
-                      subtitle: const Text('編輯精選'),
-                      onTap: () {
-                        print('點擊了推薦文章 2');
-                        // TODO: 導航到特定推薦文章
-                      },
-                    ),
-                  ),
-                  const Divider(height: 30), // 分隔線
-                  // 聯絡方式 / 相關連結
-                  const Text(
-                    '相關連結',
-                    style: TextStyle(
-                      fontSize: 16.0,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 8.0),
-                  ListTile(
-                    leading: const Icon(Icons.link),
-                    title: const Text('官方網站'),
-                    onTap: () {
-                      print('點擊了官方網站');
-                      // TODO: 開啟外部連結
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.facebook),
-                    title: const Text('我們的 Facebook 頁面'),
-                    onTap: () {
-                      print('點擊了 Facebook 頁面');
-                      // TODO: 開啟外部連結
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.mail_outline),
-                    title: const Text('聯絡我們'),
-                    onTap: () {
-                      print('點擊了聯絡我們');
-                      // TODO: 開啟郵件或聯絡表單
-                    },
-                  ),
-                ],
               ),
             ),
           ),
