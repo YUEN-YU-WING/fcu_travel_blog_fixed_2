@@ -18,7 +18,7 @@ class _FriendsListPageState extends State<FriendsListPage> {
   // 為了演示，我們將模擬當前用戶的好友 ID 列表
   // 實際應用中，這會從當前登入用戶的文檔中讀取
   final List<String> _myFriendIds = [
-    'Pk6zjb7KOvcs79PcJw7wR5e3i8a2', // 替換為你 Firestore 中真實的用戶 ID
+    '8xrvP3tWmzREzeyu46EsB61kdqq2', // 替換為你 Firestore 中真實的用戶 ID
     'Hzy50fHi6Jb4C3pxmVkwOkV0XNy2', // 替換為你 Firestore 中真實的用戶 ID
     // ... 更多好友 ID
   ];
