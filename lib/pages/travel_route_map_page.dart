@@ -93,8 +93,8 @@ class CustomInfoWindow extends StatelessWidget {
             Align(
               alignment: Alignment.bottomRight,
               child: TextButton.icon(
-                icon: const Icon(Icons.edit, size: 18),
-                label: const Text('編輯遊記'),
+                icon: const Icon(Icons.read_more, size: 18),
+                label: const Text('閱讀文章'),
                 onPressed: onEdit,
               ),
             ),

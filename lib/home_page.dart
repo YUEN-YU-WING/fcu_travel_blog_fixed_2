@@ -9,6 +9,7 @@ import 'article_detail_page.dart';
 import 'friends_list_page.dart';
 import 'friend_profile_page.dart';
 import 'bookmarked_articles_page.dart'; // 引入新的收藏頁面
+import 'pages/browse_collections_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -280,6 +281,16 @@ class _HomePageState extends State<HomePage> {
         },
         onNavIconTap: (index) {
           print('點擊了中間導覽圖示：$index');
+          switch (index) {
+            case 0: // 首頁 (已經在 MyAppBar 的 _buildHomeMainNavItem 處理了導航邏輯)
+            // 如果 MyAppBar 已經處理了導航，這裡可以留空或做其他處理
+              break;
+            case 1: // 行程集合 (對應 Icons.map_outlined)
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const BrowseCollectionsPage()),
+              );
+              break;
+          }
         },
       ),
       body: Row(

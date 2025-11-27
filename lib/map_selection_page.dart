@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'travelogue_map_page.dart'; // 舊的 MapPickerPage 更名為此
+import 'pages/travelogue_map_page.dart'; // 舊的 MapPickerPage 更名為此
 import 'pages/travel_route_collection_page.dart'; // 新增的路徑地圖頁面
 import 'pages/travel_route_map_page.dart';
 

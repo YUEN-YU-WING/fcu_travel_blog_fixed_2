@@ -8,6 +8,8 @@ class TravelRouteCollection {
   DateTime createdAt; // 創建時間
   DateTime updatedAt; // 更新時間
   String? ownerUid; // 所屬用戶 ID (可選)
+  String ownerName; // 新增：擁有者名稱
+  bool isPublic;    // 新增：是否公開
   String? thumbnailUrl;
 
   TravelRouteCollection({
@@ -17,6 +19,8 @@ class TravelRouteCollection {
     DateTime? createdAt,
     DateTime? updatedAt,
     this.ownerUid,
+    this.ownerName = '未知用戶', // 設置默認值
+    this.isPublic = false,      // 默認不公開
     this.thumbnailUrl,
   }) : createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
@@ -31,6 +35,8 @@ class TravelRouteCollection {
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       ownerUid: data['ownerUid'],
+      ownerName: data['ownerName'] ?? '未知用戶', // 從數據中讀取
+      isPublic: data['isPublic'] ?? false,      // 從數據中讀取
       thumbnailUrl: data['thumbnailImageUrl'],
     );
   }
@@ -43,6 +49,8 @@ class TravelRouteCollection {
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
       'ownerUid': ownerUid,
+      'ownerName': ownerName,
+      'isPublic': isPublic,
       'thumbnailUrl': thumbnailUrl,
     };
   }

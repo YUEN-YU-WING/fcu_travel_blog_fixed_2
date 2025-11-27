@@ -10,7 +10,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
-import 'edit_article_page.dart'; // 確保這個檔案存在
+import '../edit_article_page.dart'; // 確保這個檔案存在
+import '../models/travel_article_data.dart';
 
 class TravelogueMapPage extends StatefulWidget {
   final bool embedded;
@@ -134,13 +135,13 @@ class _TravelogueMapPageState extends State<TravelogueMapPage> {
       final String? thumbnailUrl = article['thumbnailImageUrl'];
 
       BitmapDescriptor markerIcon;
-      // if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
-      //   markerIcon = await _getCustomMarkerIcon(thumbnailUrl, articleId);
-      // } else {
-      //   markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
-      // }
+      if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
+        markerIcon = await _getCustomMarkerIcon(thumbnailUrl, articleId);
+      } else {
+        markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      }
 
-      markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      //markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
 
       _markers.add(
         Marker(

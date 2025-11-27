@@ -19,6 +19,8 @@ class MyAppBar extends StatefulWidget implements PreferredSizeWidget {
 
   final ValueChanged<int>? onNavIconTap;
 
+
+
   const MyAppBar({
     super.key,
     required this.title,
@@ -116,13 +118,15 @@ class _MyAppBarState extends State<MyAppBar> {
           _searchController.clear();
           widget.onSearch?.call('');
         }
-        widget.onNavIconTap?.call(2);
+        widget.onNavIconTap?.call(0); // ✅ 調整索引：首頁現在是索引 0
       },
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // TextEditingController searchController = TextEditingController(); // 這裡重複定義了，應該使用 _searchController
+
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0.5,
@@ -132,7 +136,7 @@ class _MyAppBarState extends State<MyAppBar> {
         children: [
           // 左側：Logo 和搜尋框
           Expanded(
-            flex: 3, // ✅ 稍微增加 flex 讓搜尋框長一點
+            flex: 3,
             child: Row(
               children: [
                 const SizedBox(width: 8),
@@ -145,10 +149,9 @@ class _MyAppBarState extends State<MyAppBar> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // ✅ 優化：真正的輸入框
                 Expanded(
                   child: Container(
-                    height: 36, // 固定高度讓視覺更整齊
+                    height: 36,
                     padding: const EdgeInsets.only(left: 12),
                     decoration: BoxDecoration(
                       color: Colors.grey[200],
@@ -156,9 +159,8 @@ class _MyAppBarState extends State<MyAppBar> {
                     ),
                     child: TextField(
                       controller: _searchController,
-                      textInputAction: TextInputAction.search, // 鍵盤顯示搜尋按鈕
+                      textInputAction: TextInputAction.search,
                       onSubmitted: (value) {
-                        // ✅ 按下鍵盤搜尋鍵時觸發
                         widget.onSearch?.call(value);
                       },
                       decoration: InputDecoration(
@@ -166,21 +168,21 @@ class _MyAppBarState extends State<MyAppBar> {
                         hintStyle: TextStyle(color: Colors.grey[600], fontSize: 14),
                         border: InputBorder.none,
                         icon: const Icon(Icons.search, color: Colors.grey, size: 20),
-                        contentPadding: const EdgeInsets.only(bottom: 10), // 調整文字垂直位置
+                        contentPadding: const EdgeInsets.only(bottom: 10),
                         isDense: true,
                         suffixIcon: _searchController.text.isNotEmpty
                             ? IconButton(
                           icon: const Icon(Icons.close, size: 16, color: Colors.grey),
                           onPressed: () {
                             _searchController.clear();
-                            widget.onSearch?.call(''); // 清除搜尋
-                            setState(() {}); // 更新 UI 以隱藏 X 按鈕
+                            widget.onSearch?.call('');
+                            setState(() {});
                           },
                         )
                             : null,
                       ),
                       onChanged: (val) {
-                        setState(() {}); // 僅用於更新 X 按鈕的顯示狀態
+                        setState(() {});
                       },
                     ),
                   ),
@@ -191,13 +193,26 @@ class _MyAppBarState extends State<MyAppBar> {
           ),
 
           // 中間：主要導覽圖示
+          // ✅ 調整 flex 比例，給中間更多空間
           Expanded(
-            flex: 2,
+            flex: 3, // 從 2 改為 3，提供更多空間給多個圖示
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildHomeMainNavItem(context),
-                // 保留空間給其他 Icon
+                _buildHomeMainNavItem(context), // 索引 0
+                IconButton(
+                  icon: const Icon(Icons.map_outlined), // 行程圖示
+                  color: Colors.black54,
+                  onPressed: () => widget.onNavIconTap?.call(1), // ✅ 索引 1 給行程
+                  tooltip: '行程',
+                ),
+                // 你可以根據需要添加更多導覽圖示
+                // 例如：IconButton(
+                //   icon: const Icon(Icons.storefront_outlined), // 市集圖示
+                //   color: Colors.black54,
+                //   onPressed: () => widget.onNavIconTap?.call(3), // ✅ 索引 3 給市集
+                //   tooltip: '市集',
+                // ),
               ],
             ),
           ),
@@ -208,7 +223,7 @@ class _MyAppBarState extends State<MyAppBar> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                _buildNotifyButton(context),
+                // _buildNotifyButton(context),
                 _buildAvatarButton(context),
                 const SizedBox(width: 8),
               ],

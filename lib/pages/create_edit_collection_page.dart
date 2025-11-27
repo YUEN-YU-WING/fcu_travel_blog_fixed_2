@@ -6,10 +6,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../models/travel_article_data.dart';
 import '../models/travel_route_collection.dart';
-import '../article_detail_page.dart'; // 引入文章詳情頁面，可以在點擊時跳轉
+import '../article_detail_page.dart';
 
 class CreateEditCollectionPage extends StatefulWidget {
-  final TravelRouteCollection? collection; // 如果傳入 collection，表示編輯模式
+  final TravelRouteCollection? collection;
 
   const CreateEditCollectionPage({super.key, this.collection});
 
@@ -24,17 +24,20 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   List<TravelArticleData> _allUserArticles = [];
-  // _selectedArticleIds 的順序將決定顯示的數字順序
   List<String> _selectedArticleIds = [];
   bool _isLoadingArticles = true;
+  bool _isPublic = false;
+
+  String _currentUserName = '未知用戶'; // 用於保存當前用戶的名稱
 
   @override
   void initState() {
     super.initState();
+    _loadCurrentUserProfile(); // 在載入文章前先載入用戶資料
     if (widget.collection != null) {
       _nameController.text = widget.collection!.name;
-      // 初始化時，如果編輯現有集合，直接從集合中獲取已選中的 ID
       _selectedArticleIds = List.from(widget.collection!.articleIds);
+      _isPublic = widget.collection!.isPublic;
     }
     _loadAllUserArticles();
   }
@@ -43,6 +46,26 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
   void dispose() {
     _nameController.dispose();
     super.dispose();
+  }
+
+  // 載入當前用戶的名稱，用於創建集合時設置 ownerName
+  Future<void> _loadCurrentUserProfile() async {
+    User? currentUser = _auth.currentUser;
+    if (currentUser != null) {
+      // 從 Firestore 的 'users' 集合中獲取用戶文檔
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+      if (userDoc.exists) {
+        setState(() {
+          // 從用戶文檔中讀取 displayName，如果不存在則使用 '未知用戶'
+          _currentUserName = userDoc['displayName'] ?? '未知用戶';
+        });
+      } else {
+        // 如果用戶文檔不存在，但有 FirebaseAuth 用戶，也可以嘗試從 FirebaseAuth 獲取
+        setState(() {
+          _currentUserName = currentUser.displayName ?? '未知用戶';
+        });
+      }
+    }
   }
 
   Future<void> _loadAllUserArticles() async {
@@ -59,7 +82,7 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
 
     try {
       final querySnapshot = await _firestore.collection('articles')
-          .where('authorUid', isEqualTo: currentUser.uid) // 只查詢當前用戶的文章
+          .where('authorUid', isEqualTo: currentUser.uid)
           .orderBy('updatedAt', descending: true)
           .get();
       setState(() {
@@ -97,8 +120,10 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
         // 創建新集合
         final newCollection = TravelRouteCollection(
           name: name,
-          articleIds: _selectedArticleIds, // 使用 _selectedArticleIds 的順序
+          articleIds: _selectedArticleIds,
           ownerUid: currentUser.uid,
+          ownerName: _currentUserName, // 在這裡使用獲取到的用戶名稱
+          isPublic: _isPublic,
         );
         await _firestore.collection('travelRouteCollections').add(newCollection.toFirestore());
         ScaffoldMessenger.of(context).showSnackBar(
@@ -107,14 +132,16 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
       } else {
         // 編輯現有集合
         widget.collection!.name = name;
-        widget.collection!.articleIds = _selectedArticleIds; // 使用 _selectedArticleIds 的順序
+        widget.collection!.articleIds = _selectedArticleIds;
         widget.collection!.updatedAt = DateTime.now();
+        widget.collection!.isPublic = _isPublic;
+
         await _firestore.collection('travelRouteCollections').doc(widget.collection!.id).update(widget.collection!.toFirestore());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('行程集合 "$name" 已更新。')),
         );
       }
-      Navigator.of(context).pop(true); // 返回 true 表示操作成功
+      Navigator.of(context).pop(true);
     } catch (e) {
       print("Error saving collection: $e");
       ScaffoldMessenger.of(context).showSnackBar(
@@ -123,17 +150,14 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
     }
   }
 
-  // 點擊遊記卡片時的處理邏輯
   void _toggleArticleSelection(TravelArticleData article) {
     if (article.id == null) return;
 
     setState(() {
       final isSelected = _selectedArticleIds.contains(article.id!);
       if (isSelected) {
-        // 如果已經選中，則移除
         _selectedArticleIds.remove(article.id!);
       } else {
-        // 如果未選中，則添加
         _selectedArticleIds.add(article.id!);
       }
     });
@@ -160,19 +184,35 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
             padding: const EdgeInsets.all(16.0),
             child: Form(
               key: _formKey,
-              child: TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: '行程集合名稱',
-                  border: OutlineInputBorder(),
-                  hintText: '例如：台中三天兩夜美食之旅',
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return '行程集合名稱不能為空';
-                  }
-                  return null;
-                },
+              child: Column(
+                children: [
+                  TextFormField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(
+                      labelText: '行程集合名稱',
+                      border: OutlineInputBorder(),
+                      hintText: '例如：台中三天兩夜美食之旅',
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return '行程集合名稱不能為空';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text('公開行程集合'),
+                    subtitle: const Text('開啟後，其他讀者將能在行程瀏覽頁面看到此集合'),
+                    value: _isPublic,
+                    onChanged: (bool value) {
+                      setState(() {
+                        _isPublic = value;
+                      });
+                    },
+                    secondary: const Icon(Icons.public),
+                  ),
+                ],
               ),
             ),
           ),
@@ -195,24 +235,22 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
               itemBuilder: (context, index) {
                 final article = _allUserArticles[index];
                 final bool isSelected = _selectedArticleIds.contains(article.id);
-                // 獲取選中順序的索引，如果未選中則為 -1
                 final int selectedOrder = isSelected ? _selectedArticleIds.indexOf(article.id!) + 1 : -1;
 
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  elevation: isSelected ? 4 : 1, // 選中時提高陰影
+                  elevation: isSelected ? 4 : 1,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                     side: isSelected ? const BorderSide(color: Colors.blueAccent, width: 2) : BorderSide.none,
                   ),
                   child: InkWell(
-                    onTap: () => _toggleArticleSelection(article), // 點擊卡片切換選中狀態
+                    onTap: () => _toggleArticleSelection(article),
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // 顯示縮略圖或默認圖標
                           if (article.thumbnailUrl != null && article.thumbnailUrl!.isNotEmpty)
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
@@ -256,7 +294,6 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
                               ],
                             ),
                           ),
-                          // 顯示順序數字標籤
                           if (isSelected)
                             Container(
                               width: 24,
@@ -276,11 +313,10 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
                                 ),
                               ),
                             ),
-                          // Checkbox 保持不變，用於視覺確認
                           Checkbox(
                             value: isSelected,
                             onChanged: (bool? value) {
-                              _toggleArticleSelection(article); // 調用統一的切換方法
+                              _toggleArticleSelection(article);
                             },
                           ),
                         ],
