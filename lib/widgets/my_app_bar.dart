@@ -6,9 +6,9 @@ class MyAppBar extends StatefulWidget implements PreferredSizeWidget {
   final String title;
   final bool centerTitle;
 
-  // ✅ 新增：是否為手機模式 (由父層傳入)
+  // 是否為手機模式 (由父層傳入)
   final bool isMobile;
-  // ✅ 新增：點擊漢堡選單的回調
+  // 點擊漢堡選單的回調
   final VoidCallback? onMenuTap;
 
   final bool isHomePage;
@@ -40,17 +40,14 @@ class MyAppBar extends StatefulWidget implements PreferredSizeWidget {
   State<MyAppBar> createState() => _MyAppBarState();
 
   @override
-  // 如果需要兩行 AppBar (例如有 TabBar)，高度需要增加 kTextTabBarHeight
-  // 這裡我們預設保持標準高度，如果開啟 bottom 屬性則需要調整
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-// 若要開啟第二行 (bottom)，請改用:
-// Size get preferredSize => Size.fromHeight(kToolbarHeight + (isMobile ? 0 : 0)); // 視需求調整
+  // ✅ 修改高度計算：如果是手機版，高度需要包含 bottom 區域 (標準高度 kToolbarHeight + 導覽列高度 48)
+  Size get preferredSize => Size.fromHeight(kToolbarHeight + (isMobile ? 48.0 : 0.0));
 }
 
 class _MyAppBarState extends State<MyAppBar> {
   late TextEditingController _searchController;
 
-  // ✅ 手機版專用：控制搜尋框是否展開
+  // 手機版專用：控制搜尋框是否展開
   bool _isMobileSearchExpanded = false;
 
   @override
@@ -123,7 +120,7 @@ class _MyAppBarState extends State<MyAppBar> {
     );
   }
 
-  // ✅ 封裝搜尋框 Widget (共用)
+  // 封裝搜尋框 Widget (共用)
   Widget _buildSearchField({bool isMobile = false}) {
     return Container(
       height: 36,
@@ -187,7 +184,7 @@ class _MyAppBarState extends State<MyAppBar> {
           onPressed: widget.onMenuTap, // 開啟 Drawer
         ),
 
-        // 2. 中間：Logo 或 搜尋框
+        // 2. 第一行中間：Logo 或 搜尋框
         title: _isMobileSearchExpanded
             ? Padding(
           padding: const EdgeInsets.only(right: 16.0),
@@ -203,13 +200,10 @@ class _MyAppBarState extends State<MyAppBar> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const Spacer(),
-            // 如果想在 Appbar 顯示兩行，可以使用 `bottom` 屬性，
-            // 但在 title 這裡我們保持簡潔
           ],
         ),
 
-        // 3. 右側：搜尋圖示(未展開時) + 頭像
+        // 3. 第一行右側：搜尋圖示(未展開時) + 頭像
         actions: [
           if (!_isMobileSearchExpanded)
             IconButton(
@@ -222,17 +216,41 @@ class _MyAppBarState extends State<MyAppBar> {
           const SizedBox(width: 8),
         ],
 
-        // ✅ 關於「Appbar 分為兩行」：
-        // 你可以在這裡使用 bottom 屬性。例如放 TabBar 或分類標籤。
-        // 如果要在這裡放搜尋框也可以，但會佔用垂直空間。
-        // bottom: PreferredSize(
-        //   preferredSize: Size.fromHeight(40),
-        //   child: Container(child: Text("第二行內容")),
-        // ),
+        // ✅ 核心修改：使用 bottom 屬性建立「第二行」
+        // 這裡我們放入一個 PreferredSize 包裹的 Row，用來放導覽按鈕
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48.0), // 第二行的高度
+          child: Container(
+            height: 48.0,
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Colors.black12, width: 0.5), // 加上一條細線分隔第一行
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly, // 平均分配空間
+              children: [
+                // 導覽項目 1: 首頁
+                _buildHomeMainNavItem(context),
+
+                // 導覽項目 2: 行程地圖
+                IconButton(
+                  icon: const Icon(Icons.map_outlined),
+                  color: Colors.black54,
+                  onPressed: () => widget.onNavIconTap?.call(1),
+                  tooltip: '行程',
+                ),
+
+                // 如果未來有市集或其他分頁，加在這裡即可
+              ],
+            ),
+          ),
+        ),
       );
     }
 
     // ================== 桌面版佈局 (Desktop) ==================
+    // 桌面版保持原樣，所有東西都在同一行
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0.5,
@@ -261,7 +279,7 @@ class _MyAppBarState extends State<MyAppBar> {
             ),
           ),
 
-          // 中間：導覽圖示
+          // 中間：導覽圖示 (桌面版顯示在中間)
           Expanded(
             flex: 3,
             child: Row(
