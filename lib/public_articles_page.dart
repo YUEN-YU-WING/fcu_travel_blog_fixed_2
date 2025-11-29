@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'article_detail_page.dart'; // 引入文章詳情頁面
+import 'article_detail_page.dart';
+import 'pages/travelogue_map_page.dart'; // [新增] 引入地圖頁面
 
 class PublicArticlesPage extends StatefulWidget {
   final bool embedded;
@@ -19,12 +20,31 @@ class _PublicArticlesPageState extends State<PublicArticlesPage> {
       appBar: AppBar(
         title: const Text('所有公開遊記'),
         automaticallyImplyLeading: !widget.embedded,
+        // [新增] Actions
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.map_outlined),
+            tooltip: '地圖模式',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const TravelogueMapPage(
+                    embedded:  false,
+                    isPublicView: true, // 開啟公開瀏覽模式
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
+        // ... (以下程式碼保持不變) ...
         stream: FirebaseFirestore.instance
             .collection('articles')
-            .where('isPublic', isEqualTo: true) // 只查詢公開文章
-            .orderBy('updatedAt', descending: true) // 按最新更新時間排序
+            .where('isPublic', isEqualTo: true)
+            .orderBy('updatedAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {

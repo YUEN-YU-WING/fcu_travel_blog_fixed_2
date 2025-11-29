@@ -82,7 +82,7 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
 
     try {
       final querySnapshot = await _firestore.collection('articles')
-          .where('authorUid', isEqualTo: currentUser.uid)
+          .where('ownerUid', isEqualTo: currentUser.uid)
           .orderBy('updatedAt', descending: true)
           .get();
       setState(() {
