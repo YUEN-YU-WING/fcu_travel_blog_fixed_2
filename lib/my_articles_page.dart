@@ -2,25 +2,69 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class MyArticlesPage extends StatelessWidget {
+// 將 MyArticlesPage 轉換為 StatefulWidget
+class MyArticlesPage extends StatefulWidget {
   final bool embedded;
 
   const MyArticlesPage({super.key, this.embedded = false});
 
   @override
+  State<MyArticlesPage> createState() => _MyArticlesPageState();
+}
+
+class _MyArticlesPageState extends State<MyArticlesPage> {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // 用於切換文章公開狀態的函數
+  Future<void> _togglePublicStatus(BuildContext context, String articleId, bool currentStatus) async {
+    try {
+      await _firestore.collection('articles').doc(articleId).update({
+        'isPublic': !currentStatus,
+        'updatedAt': FieldValue.serverTimestamp(), // 更新修改時間
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('文章狀態已更新為 ${!currentStatus ? "公開" : "非公開"}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('更新狀態失敗: $e')),
+      );
+    }
+  }
+
+  // 刪除文章的邏輯
+  Future<void> _deleteArticle(BuildContext context, String articleId) async {
+    try {
+      await _firestore.collection('articles').doc(articleId).delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('文章已刪除')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('刪除失敗: $e')),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _auth.currentUser;
     if (user == null) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('我的文章'),
-          automaticallyImplyLeading: !embedded,
+          automaticallyImplyLeading: !widget.embedded,
         ),
         body: const Center(child: Text('請先登入')),
       );
     }
 
-    final articlesStream = FirebaseFirestore.instance
+    final articlesStream = _firestore
         .collection('articles')
         .where('ownerUid', isEqualTo: user.uid)
         .orderBy('createdAt', descending: true)
@@ -29,7 +73,7 @@ class MyArticlesPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('我的文章'),
-        automaticallyImplyLeading: !embedded,
+        automaticallyImplyLeading: !widget.embedded,
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: articlesStream,
@@ -52,9 +96,10 @@ class MyArticlesPage extends StatelessWidget {
             itemBuilder: (context, index) {
               final doc = docs[index];
               final data = doc.data() as Map<String, dynamic>? ?? {};
-              final articleId = doc.id; // 獲取文章 ID
+              final articleId = doc.id;
               final title = data['title'] ?? '';
               final content = data['content'] ?? '';
+              final isPublic = data['isPublic'] ?? false; // 獲取 isPublic 狀態
 
               return ListTile(
                 title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -63,32 +108,44 @@ class MyArticlesPage extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                // 新增刪除按鈕
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () {
-                    // 顯示確認對話框
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('確認刪除'),
-                        content: Text('你確定要刪除文章「$title」嗎？'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context), // 取消
-                            child: const Text('取消'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pop(context); // 關閉對話框
-                              _deleteArticle(context, articleId); // 執行刪除
-                            },
-                            child: const Text('刪除', style: TextStyle(color: Colors.red)),
-                          ),
-                        ],
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min, // 確保 Row 只佔用所需的空間
+                  children: [
+                    Tooltip(
+                      message: isPublic ? '公開文章' : '私人文章',
+                      child: Switch(
+                        value: isPublic,
+                        onChanged: (newValue) {
+                          _togglePublicStatus(context, articleId, isPublic);
+                        },
                       ),
-                    );
-                  },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('確認刪除'),
+                            content: Text('你確定要刪除文章「$title」嗎？'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('取消'),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _deleteArticle(context, articleId);
+                                },
+                                child: const Text('刪除', style: TextStyle(color: Colors.red)),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
                 onTap: () async {
                   await Navigator.pushNamed(
@@ -98,6 +155,7 @@ class MyArticlesPage extends StatelessWidget {
                       'articleId': articleId,
                       'initialTitle': title,
                       'content': content,
+                      // 不需要傳遞 isPublic 給編輯頁面了
                     },
                   );
                 },
@@ -114,19 +172,5 @@ class MyArticlesPage extends StatelessWidget {
         child: const Icon(Icons.add),
       ),
     );
-  }
-
-  // 刪除文章的邏輯
-  Future<void> _deleteArticle(BuildContext context, String articleId) async {
-    try {
-      await FirebaseFirestore.instance.collection('articles').doc(articleId).delete();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('文章已刪除')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('刪除失敗: $e')),
-      );
-    }
   }
 }

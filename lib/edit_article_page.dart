@@ -10,7 +10,6 @@ import 'map_picker_page.dart';
 import 'album_folder_page.dart';
 
 class EditArticlePage extends StatefulWidget {
-  // ✅ 新增：在後台嵌入時不顯示系統返回鍵
   final bool embedded;
 
   final String? articleId;
@@ -21,11 +20,11 @@ class EditArticlePage extends StatefulWidget {
   final String? initialPlaceName;
   final String? initialThumbnailImageUrl;
   final String? initialThumbnailFileName;
-  final bool? initialIsPublic;
+  // final bool? initialIsPublic; // <--- 移除此行
 
   const EditArticlePage({
     super.key,
-    this.embedded = false, // ✅ 預設為 false，獨立開頁時仍會有返回鍵
+    this.embedded = false,
     this.articleId,
     this.initialTitle,
     this.initialContent,
@@ -34,7 +33,7 @@ class EditArticlePage extends StatefulWidget {
     this.initialPlaceName,
     this.initialThumbnailImageUrl,
     this.initialThumbnailFileName,
-    this.initialIsPublic,
+    // this.initialIsPublic, // <--- 移除此行
   });
 
   static EditArticlePage fromRouteArguments(BuildContext context) {
@@ -42,13 +41,13 @@ class EditArticlePage extends StatefulWidget {
     return EditArticlePage(
       articleId: args['articleId'] as String?,
       initialTitle: args['initialTitle'] as String?,
-      initialContent: args['content'] as String?, // 這裡是 content
+      initialContent: args['content'] as String?,
       initialLocation: args['location'] as LatLng?,
       initialAddress: args['address'] as String?,
       initialPlaceName: args['placeName'] as String?,
       initialThumbnailImageUrl: args['thumbnailUrl'] as String?,
       initialThumbnailFileName: args['thumbnailFileName'] as String?,
-      initialIsPublic: args['isPublic'] as bool?,
+      // initialIsPublic: args['isPublic'] as bool? ?? false, // <--- 移除此行
       embedded: args['embedded'] as bool? ?? false,
     );
   }
@@ -66,7 +65,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
   String? _selectedAddress;
   String? _thumbnailImageUrl;
   String? _thumbnailFileName;
-  bool _isPublic = false;
+  // bool _isPublic = false; // <--- 移除此行
 
   bool _isLoading = false;
   String? _initialEditorContent;
@@ -84,7 +83,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
     _selectedAddress = widget.initialAddress;
     _thumbnailImageUrl = widget.initialThumbnailImageUrl;
     _thumbnailFileName = widget.initialThumbnailFileName;
-    _isPublic = widget.initialIsPublic ?? false;
+    // _isPublic = widget.initialIsPublic ?? false; // <--- 移除此行
 
     // 如果需要，從 Firestore 補齊完整文章資料
     if (widget.articleId != null &&
@@ -92,8 +91,8 @@ class _EditArticlePageState extends State<EditArticlePage> {
             _initialEditorContent == null ||
             _selectedLocation == null ||
             _placeNameController.text.isEmpty ||
-            _thumbnailImageUrl == null ||
-            widget.initialIsPublic == null)) {
+            _thumbnailImageUrl == null)) {
+      // || widget.initialIsPublic == null)) { // <--- 移除此行
       _fetchArticle();
     }
   }
@@ -163,7 +162,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
         _selectedAddress = data?['address'] ?? '';
         _thumbnailImageUrl = data?['thumbnailUrl'] ?? '';
         _thumbnailFileName = data?['thumbnailFileName'] ?? '';
-        _isPublic = data?['isPublic'] ?? false;
+        // _isPublic = data?['isPublic'] ?? false; // <--- 移除此行
       }
     } catch (e) {
       if (!mounted) return;
@@ -219,8 +218,8 @@ class _EditArticlePageState extends State<EditArticlePage> {
         'address': _selectedAddress,
         'thumbnailImageUrl': _thumbnailImageUrl,
         'thumbnailFileName': _thumbnailFileName,
-        'isPublic': _isPublic,
-        'keywords': keywords, // ✅ 儲存關鍵字陣列
+        // 'isPublic': _isPublic, // <--- 移除此行，因為現在由 MyArticlesPage 管理
+        'keywords': keywords,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -229,6 +228,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
           ...dataToSave,
           'ownerUid': user.uid,
           'createdAt': FieldValue.serverTimestamp(),
+          'isPublic': false, // <--- 新增：新文章預設為不公開
         });
       } else {
         await FirebaseFirestore.instance.collection('articles').doc(widget.articleId).update(dataToSave);
@@ -237,11 +237,9 @@ class _EditArticlePageState extends State<EditArticlePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('儲存成功！')));
 
-      // 如果不是嵌入模式，則 pop 並返回 true
       if (!widget.embedded) {
-        Navigator.pop(context, true); // 返回 true 表示保存成功
+        Navigator.pop(context, true);
       }
-      // 如果是嵌入模式，則不做任何導航操作，讓頁面保持在 BackendHomePage 內部
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('儲存失敗: $e')));
@@ -293,18 +291,12 @@ class _EditArticlePageState extends State<EditArticlePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.articleId == null ? '新增文章' : '編輯文章'),
-        // ✅ 核心：在後台嵌入時（embedded=true）不顯示返回鍵
         automaticallyImplyLeading: !widget.embedded,
         actions: [
           IconButton(
             icon: const Icon(Icons.location_on),
             onPressed: _pickLocation,
             tooltip: '重新選擇地點',
-          ),
-          IconButton(
-            icon: const Icon(Icons.photo),
-            onPressed: _pickThumbnail,
-            tooltip: '選擇遊記縮圖',
           ),
           IconButton(
             icon: const Icon(Icons.save),
@@ -337,6 +329,38 @@ class _EditArticlePageState extends State<EditArticlePage> {
               ),
             ),
             const SizedBox(height: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text('遊記縮圖:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _pickThumbnail,
+                      icon: const Icon(Icons.photo_library),
+                      label: Text(_thumbnailImageUrl != null && _thumbnailImageUrl!.isNotEmpty ? '更改縮圖' : '選擇縮圖'),
+                    ),
+                  ],
+                ),
+                if (_thumbnailImageUrl != null && _thumbnailImageUrl!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8.0),
+                      child: CachedNetworkImage(
+                        imageUrl: _thumbnailImageUrl!,
+                        width: 100,
+                        height: 100,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                        errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 100),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+              ],
+            ),
             if (_selectedAddress != null && _selectedAddress!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16.0),
@@ -354,41 +378,9 @@ class _EditArticlePageState extends State<EditArticlePage> {
                   ],
                 ),
               ),
-            if (_thumbnailImageUrl != null && _thumbnailImageUrl!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('選定縮圖:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8.0),
-                      child: CachedNetworkImage(
-                        imageUrl: _thumbnailImageUrl!,
-                        width: 100,
-                        height: 100,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-                        errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 100),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            Row(
-              children: [
-                const Text('公開發表', style: TextStyle(fontSize: 16)),
-                const Spacer(),
-                Switch(
-                  value: _isPublic,
-                  onChanged: (value) => setState(() => _isPublic = value),
-                ),
-              ],
-            ),
+            // <--- 原來的「公開發表」Switch 已移除
             const SizedBox(height: 16),
 
-            // HTML 編輯器
             Container(
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.grey),
@@ -417,17 +409,13 @@ class _EditArticlePageState extends State<EditArticlePage> {
                 callbacks: Callbacks(
                   onInit: () async {
                     _isEditorReady = true;
-                    // 有初始內容 → 設到編輯器
                     final toSet = widget.initialContent ?? _initialEditorContent ?? '';
                     if (toSet.isNotEmpty) {
                       await (_htmlEditorController.setText(toSet) as Future<dynamic>);
                     }
                   },
                   onChangeContent: (String? changed) {},
-                  onImageUpload: (FileUpload file) async {
-                    // 若你要在這裡上傳圖片到 Storage，可補齊上傳邏輯
-                    // 並用 controller.insertNetworkImage(url) 插入
-                  },
+                  onImageUpload: (FileUpload file) async {},
                   onImageUploadError: (FileUpload? file, String? base64, UploadError error) {
                     String errorMessage = error.toString();
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -437,7 +425,6 @@ class _EditArticlePageState extends State<EditArticlePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 16),
           ],
         ),

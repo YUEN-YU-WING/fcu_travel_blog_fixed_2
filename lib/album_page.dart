@@ -280,17 +280,19 @@ class _AlbumPageState extends State<AlbumPage> {
           }
           return GridView.builder(
             padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 6,
-              crossAxisSpacing: 6,
+            // 使用 MaxCrossAxisExtent 確保格子大小固定且適中
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 160, // 設定每個格子的最大寬度 (例如 160)
+              mainAxisSpacing: 12,     // 加大一點垂直間距
+              crossAxisSpacing: 12,    // 加大一點水平間距
+              childAspectRatio: 1.0,   // 正方形比例
             ),
             itemCount: docs.length,
             itemBuilder: (context, index) {
               final doc = docs[index];
               final data = doc.data() as Map<String, dynamic>? ?? {};
               final storagePath = data['storagePath'] as String?;
-              final urlFromDB = data['url'] as String?; // 你的數據庫字段是 'url'
+              final urlFromDB = data['url'] as String?;
               final fileName = data['fileName'] as String? ?? '未知檔案';
               final isSelected = _selectedPhotoIds.contains(doc.id);
 
@@ -299,12 +301,12 @@ class _AlbumPageState extends State<AlbumPage> {
                 builder: (context, snapshot) {
                   final imageUrl = snapshot.data;
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const SizedBox(height: 120, child: Center(child: CircularProgressIndicator()));
+                    return const SizedBox(child: Center(child: CircularProgressIndicator()));
                   }
                   if (imageUrl == null) return const SizedBox();
 
                   return GestureDetector(
-                    onLongPress: !widget.isPickingImage // 非圖片選擇模式下才允許長按選取
+                    onLongPress: !widget.isPickingImage
                         ? () {
                       setState(() {
                         if (isSelected) {
@@ -316,25 +318,20 @@ class _AlbumPageState extends State<AlbumPage> {
                     }
                         : null,
                     onTap: () {
+                      // ... (原本的點擊邏輯保持不變) ...
                       if (widget.isPickingImage) {
-                        // 圖片選擇模式下，點擊圖片就調用選擇處理函數
-                        if (!widget.allowMultiple) { // 單選模式
+                        if (!widget.allowMultiple) {
                           _handlePhotoSelection(doc.id, imageUrl, fileName);
-                          _confirmSelection(); // 單選直接確認並返回
-                        } else { // 多選模式
+                          _confirmSelection();
+                        } else {
                           _handlePhotoSelection(doc.id, imageUrl, fileName);
                         }
                       } else if (_selectedPhotoIds.isNotEmpty) {
-                        // 非選擇模式且有選取，點擊切換選取狀態
                         setState(() {
-                          if (isSelected) {
-                            _selectedPhotoIds.remove(doc.id);
-                          } else {
-                            _selectedPhotoIds.add(doc.id);
-                          }
+                          isSelected ? _selectedPhotoIds.remove(doc.id) : _selectedPhotoIds.add(doc.id);
                         });
                       } else {
-                        // 非選擇模式且未選取，顯示大圖預覽
+                        // 顯示大圖邏輯
                         showDialog(
                           context: context,
                           builder: (ctx) => Dialog(
@@ -355,56 +352,74 @@ class _AlbumPageState extends State<AlbumPage> {
                     },
                     child: Stack(
                       children: [
-                        Hero(
-                          tag: imageUrl,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
-                                width: isSelected ? 3 : 1,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
+                        // ✅ 修改處：這裡製作「相框」效果
+                        Container(
+                          padding: const EdgeInsets.all(4), // 內距：產生白邊效果
+                          decoration: BoxDecoration(
+                            color: Colors.white, // 相框底色
+                            borderRadius: BorderRadius.circular(12), // 圓角
+                            border: Border.all(
+                              // 如果選中：顏色變深且變粗；沒選中：顯示灰色細框
+                              color: isSelected
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.grey.shade300,
+                              width: isSelected ? 3 : 1.5,
                             ),
-                            clipBehavior: Clip.antiAlias,
-                            child: CachedNetworkImage(
-                              imageUrl: imageUrl,
-                              fit: BoxFit.cover,
-                              placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-                              errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8), // 內部圖片也要圓角
+                            child: SizedBox.expand( // 讓圖片填滿剩下的空間
+                              child: Hero(
+                                tag: imageUrl,
+                                child: CachedNetworkImage(
+                                  imageUrl: imageUrl,
+                                  fit: BoxFit.cover, // 裁切填滿
+                                  placeholder: (context, url) => Container(
+                                    color: Colors.grey[100],
+                                    child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                  ),
+                                  errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: Colors.grey),
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                        // 圖片選擇模式下顯示選取標記
+
+                        // 選取標記 (保持原本邏輯)
                         if (widget.isPickingImage && isSelected)
                           Positioned(
-                            top: 4,
-                            right: 4,
+                            top: 8,
+                            right: 8,
                             child: CircleAvatar(
                               radius: 12,
                               backgroundColor: Theme.of(context).colorScheme.primary,
                               child: const Icon(Icons.check, size: 16, color: Colors.white),
                             ),
                           ),
-                        // 非圖片選擇模式下才顯示Checkbox
                         if (!widget.isPickingImage && docs.isNotEmpty)
+                        // Checkbox 位置微調
                           Positioned(
-                            left: 4,
-                            top: 4,
-                            child: Checkbox(
-                              value: isSelected,
-                              onChanged: (checked) {
-                                setState(() {
-                                  if (checked == true) {
-                                    _selectedPhotoIds.add(doc.id);
-                                  } else {
-                                    _selectedPhotoIds.remove(doc.id);
-                                  }
-                                });
-                              },
-                              shape: const CircleBorder(),
-                              side: const BorderSide(width: 1, color: Colors.grey),
-                              visualDensity: VisualDensity.compact,
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            left: 0,
+                            top: 0,
+                            child: Transform.scale(
+                              scale: 0.9,
+                              child: Checkbox(
+                                value: isSelected,
+                                onChanged: (checked) {
+                                  setState(() {
+                                    checked == true ? _selectedPhotoIds.add(doc.id) : _selectedPhotoIds.remove(doc.id);
+                                  });
+                                },
+                                shape: const CircleBorder(),
+                                activeColor: Theme.of(context).colorScheme.primary,
+                              ),
                             ),
                           ),
                       ],
