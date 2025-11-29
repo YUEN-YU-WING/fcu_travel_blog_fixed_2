@@ -14,6 +14,7 @@ import 'map_picker_page.dart';
 import 'public_articles_page.dart';
 import 'pages/create_travel_article_page.dart';
 import 'map_selection_page.dart';
+import 'pages/travel_route_collection_page.dart';
 
 void _goToHome(BuildContext context) {
   Navigator.of(context).pushAndRemoveUntil(
@@ -65,7 +66,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
       const EditArticlePage(embedded: true),
       const MyArticlesPage(embedded: true),
       const AlbumFolderPage(embedded: true),
-      const MapSelectionPage(embedded: true),
+      const TravelRouteCollectionPage(embedded: true),
       const PublicArticlesPage(embedded: true),
     ];
 
@@ -123,7 +124,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
         _navTile('編輯文章', Icons.edit, 3, isWideScreen),
         _navTile('我的文章', Icons.article, 4, isWideScreen),
         _navTile('相簿管理', Icons.photo, 5, isWideScreen),
-        _navTile('地圖', Icons.map, 6, isWideScreen),
+        _navTile('我的行程', Icons.map, 6, isWideScreen),
         _navTile('公開文章', Icons.public, 7, isWideScreen),
         const Spacer(),
         const Divider(color: Colors.white24, height: 1),

@@ -6,7 +6,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../models/travel_article_data.dart';
 import '../models/travel_route_collection.dart';
-import '../article_detail_page.dart';
 
 class CreateEditCollectionPage extends StatefulWidget {
   final TravelRouteCollection? collection;
@@ -26,18 +25,21 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
   List<TravelArticleData> _allUserArticles = [];
   List<String> _selectedArticleIds = [];
   bool _isLoadingArticles = true;
+
+  // 雖然 UI 移除了，但變數還是保留著，若是編輯模式要讀取舊的值，
+  // 這樣在保存時才不會意外把原本公開的變成不公開
   bool _isPublic = false;
 
-  String _currentUserName = '未知用戶'; // 用於保存當前用戶的名稱
+  String _currentUserName = '未知用戶';
 
   @override
   void initState() {
     super.initState();
-    _loadCurrentUserProfile(); // 在載入文章前先載入用戶資料
+    _loadCurrentUserProfile();
     if (widget.collection != null) {
       _nameController.text = widget.collection!.name;
       _selectedArticleIds = List.from(widget.collection!.articleIds);
-      _isPublic = widget.collection!.isPublic;
+      _isPublic = widget.collection!.isPublic; // 讀取現有狀態
     }
     _loadAllUserArticles();
   }
@@ -48,19 +50,15 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
     super.dispose();
   }
 
-  // 載入當前用戶的名稱，用於創建集合時設置 ownerName
   Future<void> _loadCurrentUserProfile() async {
     User? currentUser = _auth.currentUser;
     if (currentUser != null) {
-      // 從 Firestore 的 'users' 集合中獲取用戶文檔
       DocumentSnapshot userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
       if (userDoc.exists) {
         setState(() {
-          // 從用戶文檔中讀取 displayName，如果不存在則使用 '未知用戶'
           _currentUserName = userDoc['displayName'] ?? '未知用戶';
         });
       } else {
-        // 如果用戶文檔不存在，但有 FirebaseAuth 用戶，也可以嘗試從 FirebaseAuth 獲取
         setState(() {
           _currentUserName = currentUser.displayName ?? '未知用戶';
         });
@@ -117,13 +115,13 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
 
     try {
       if (widget.collection == null) {
-        // 創建新集合
+        // 創建新集合 (預設為不公開，或者你可以改成預設 true)
         final newCollection = TravelRouteCollection(
           name: name,
           articleIds: _selectedArticleIds,
           ownerUid: currentUser.uid,
-          ownerName: _currentUserName, // 在這裡使用獲取到的用戶名稱
-          isPublic: _isPublic,
+          ownerName: _currentUserName,
+          isPublic: false, // 新創建時預設私密，讓使用者去列表頁公開
         );
         await _firestore.collection('travelRouteCollections').add(newCollection.toFirestore());
         ScaffoldMessenger.of(context).showSnackBar(
@@ -134,7 +132,7 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
         widget.collection!.name = name;
         widget.collection!.articleIds = _selectedArticleIds;
         widget.collection!.updatedAt = DateTime.now();
-        widget.collection!.isPublic = _isPublic;
+        // widget.collection!.isPublic = _isPublic; // 保持原樣，不在這裡修改
 
         await _firestore.collection('travelRouteCollections').doc(widget.collection!.id).update(widget.collection!.toFirestore());
         ScaffoldMessenger.of(context).showSnackBar(
@@ -200,18 +198,7 @@ class _CreateEditCollectionPageState extends State<CreateEditCollectionPage> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 16),
-                  SwitchListTile(
-                    title: const Text('公開行程集合'),
-                    subtitle: const Text('開啟後，其他讀者將能在行程瀏覽頁面看到此集合'),
-                    value: _isPublic,
-                    onChanged: (bool value) {
-                      setState(() {
-                        _isPublic = value;
-                      });
-                    },
-                    secondary: const Icon(Icons.public),
-                  ),
+                  // 此處移除了 SwitchListTile (公開行程集合)
                 ],
               ),
             ),

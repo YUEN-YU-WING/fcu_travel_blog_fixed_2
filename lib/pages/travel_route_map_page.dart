@@ -11,12 +11,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/travel_article_data.dart';
 import '../models/travel_route_collection.dart';
 import 'travel_route_collection_page.dart';
-import '../article_detail_page.dart'; // 引入文章詳情頁面，用於編輯
+import '../article_detail_page.dart';
 
 // =========================================================================
-// CustomInfoWindow 類定義
+// CustomInfoWindow 類定義 (樣式已更新)
 class CustomInfoWindow extends StatelessWidget {
-  final TravelArticleData article; // 使用 TravelArticleData 模型
+  final TravelArticleData article;
   final VoidCallback onClose;
   final VoidCallback onEdit;
 
@@ -45,11 +45,12 @@ class CustomInfoWindow extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 標題列 (Title)
             Row(
               children: [
                 Expanded(
                   child: Text(
-                    placeName.isNotEmpty ? placeName : title,
+                    title,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -58,12 +59,17 @@ class CustomInfoWindow extends StatelessWidget {
                 IconButton(
                   icon: const Icon(Icons.close, size: 20),
                   onPressed: onClose,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+
+            // 圖片區域
             if (thumbnailUrl != null && thumbnailUrl.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                padding: const EdgeInsets.only(bottom: 8.0),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: CachedNetworkImage(
@@ -72,30 +78,41 @@ class CustomInfoWindow extends StatelessWidget {
                     height: 120,
                     fit: BoxFit.cover,
                     placeholder: (context, url) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                    errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 80),
+                    errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 80, color: Colors.grey),
                   ),
                 ),
               ),
-            Text(
-              title, // 遊記標題
-              style: const TextStyle(fontSize: 14, color: Colors.grey),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+
+            // 地點名稱 (Place Name) - 藍灰色風格
+            if (placeName.isNotEmpty)
+              Text(
+                placeName,
+                style: const TextStyle(fontSize: 14, color: Colors.blueGrey, fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+
+            // 地址
             const SizedBox(height: 4),
             Text(
-              address, // 詳細地址
+              address,
               style: const TextStyle(fontSize: 12, color: Colors.grey),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
+
             const SizedBox(height: 8),
+            // 按鈕
             Align(
               alignment: Alignment.bottomRight,
               child: TextButton.icon(
                 icon: const Icon(Icons.read_more, size: 18),
                 label: const Text('閱讀文章'),
                 onPressed: onEdit,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
             ),
           ],
@@ -127,7 +144,7 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
 
   // 自定義資訊窗口相關狀態
   TravelArticleData? _selectedArticleForInfoWindow;
-  Offset? _infoWindowOffset; // 資訊窗口的位置
+  Offset? _infoWindowOffset;
 
   static const LatLng _initialCameraPosition = LatLng(23.6937, 120.8906);
 
@@ -147,17 +164,16 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
       if (widget.initialCollectionId != null) {
         _loadArticlesForCollection(widget.initialCollectionId!);
       } else {
-        // 如果新的 initialCollectionId 是 null，清空地圖和選中的資訊窗口
         setState(() {
           _articlesInCollection.clear();
           _markers.clear();
           _polylines.clear();
           _currentCollectionId = null;
           _currentCollectionName = null;
-          _selectedArticleForInfoWindow = null; // 清空選中的文章
+          _selectedArticleForInfoWindow = null;
           _infoWindowOffset = null;
         });
-        _updateMapElements(); // 確保所有地圖元素都被清空
+        _updateMapElements();
       }
     }
   }
@@ -170,17 +186,12 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
 
   void _onMapCreated(GoogleMapController controller) {
     mapController = controller;
-    // 在地圖創建後，嘗試將攝像機移動到路徑中心，如果已經有數據
     if (_articlesInCollection.isNotEmpty) {
       _animateCameraToRoute();
     }
-    // 移除：mapController?.addListener(_onMapMove);
     _updateMapElements();
   }
 
-
-  // =========================================================================
-  // 這個方法是之前提到的，確保它存在於此處
   Future<void> _loadArticlesForCollection(String collectionId) async {
     setState(() {
       _articlesInCollection.clear();
@@ -188,8 +199,8 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
       _polylines.clear();
       _currentCollectionId = collectionId;
       _currentCollectionName = null;
-      _selectedArticleForInfoWindow = null; // 清空選中的文章
-      _infoWindowOffset = null; // 清空資訊窗口位置
+      _selectedArticleForInfoWindow = null;
+      _infoWindowOffset = null;
     });
 
     try {
@@ -257,9 +268,8 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
       _updateMapElements();
     }
   }
-  // =========================================================================
 
-
+  // 修改：實現圓形標記圖片 (移植自 travelogue_map_page.dart)
   Future<BitmapDescriptor> _getCustomMarkerIcon(String imageUrl, String markerId) async {
     if (_thumbnailCache.containsKey(markerId)) {
       return _thumbnailCache[markerId]!;
@@ -269,9 +279,48 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
       final response = await http.get(Uri.parse(imageUrl));
       if (response.statusCode == 200) {
         final Uint8List bytes = response.bodyBytes;
-        final ui.Codec codec = await ui.instantiateImageCodec(bytes, targetWidth: 80, targetHeight: 80);
+
+        // 1. 解碼圖片
+        final ui.Codec codec = await ui.instantiateImageCodec(bytes);
         final ui.FrameInfo frameInfo = await codec.getNextFrame();
-        final ByteData? byteData = await frameInfo.image.toByteData(format: ui.ImageByteFormat.png);
+        final ui.Image image = frameInfo.image;
+
+        // 2. 設定畫布與尺寸 (調整為 100 以獲得更清晰的圓形)
+        const double size = 100.0;
+        final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+        final Canvas canvas = Canvas(pictureRecorder);
+        final Rect rect = Rect.fromLTWH(0, 0, size, size);
+        final Paint paint = Paint()..isAntiAlias = true;
+
+        // 3. 畫出圓形裁切區域
+        canvas.clipPath(Path()..addOval(rect));
+
+        // 4. 計算圖片來源矩形，確保居中裁切成正方形
+        final double sizeMin = image.width < image.height ? image.width.toDouble() : image.height.toDouble();
+        final Rect srcRect = Rect.fromLTWH(
+            (image.width - sizeMin) / 2,
+            (image.height - sizeMin) / 2,
+            sizeMin,
+            sizeMin
+        );
+
+        // 5. 將圖片繪製到圓形區域內
+        paint.filterQuality = FilterQuality.high;
+        canvas.drawImageRect(image, srcRect, rect, paint);
+
+        // 6. 加上白色邊框
+        final Paint borderPaint = Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4.0 // 邊框寬度
+          ..isAntiAlias = true;
+        canvas.drawCircle(Offset(size / 2, size / 2), size / 2 - 2.0, borderPaint);
+
+        // 7. 將畫布轉換為 PNG 圖片數據
+        final ui.Picture picture = pictureRecorder.endRecording();
+        final ui.Image resizedImage = await picture.toImage(size.toInt(), size.toInt());
+        final ByteData? byteData = await resizedImage.toByteData(format: ui.ImageByteFormat.png);
+
         if (byteData != null) {
           final descriptor = BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
           _thumbnailCache[markerId] = descriptor;
@@ -306,7 +355,8 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
         Marker(
           markerId: MarkerId(articleId),
           position: LatLng(geoPoint.latitude, geoPoint.longitude),
-          infoWindow: const InfoWindow(title: '', snippet: ''), // 保持為空
+          // InfoWindow 設為空，因為我們使用自定義的 CustomInfoWindow
+          infoWindow: const InfoWindow(title: '', snippet: ''),
           icon: markerIcon,
           onTap: () {
             _showCustomInfoWindow(article);
@@ -315,6 +365,7 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
       );
     }
 
+    // 保留路徑連線效果
     if (_articlesInCollection.length > 1) {
       List<LatLng> polylinePoints = _articlesInCollection
           .where((article) => article.location != null)
@@ -328,11 +379,12 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
           Polyline(
             polylineId: const PolylineId('travel_route'),
             points: polylinePoints,
-            color: Colors.blue,
+            color: Colors.blueAccent, // 稍微調整顏色使其更亮眼
             width: 5,
             jointType: JointType.round,
             startCap: Cap.roundCap,
             endCap: Cap.roundCap,
+            patterns: [PatternItem.dash(30), PatternItem.gap(10)], // 可選：加上虛線效果增加設計感，如果不喜歡可移除
           ),
         );
       }
@@ -400,11 +452,11 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
 
       setState(() {
         final double infoWindowWidth = 300;
-        final double infoWindowHeight = 250;
+        final double infoWindowHeight = 280; // 稍微增加高度以容納新的排版
 
         _infoWindowOffset = Offset(
           screenCoordinate.x.toDouble() + offset.dx - (infoWindowWidth / 2),
-          screenCoordinate.y.toDouble() + offset.dy - infoWindowHeight - 20,
+          screenCoordinate.y.toDouble() + offset.dy - infoWindowHeight - 20, // -20 是為了讓視窗在 Marker 上方留點空隙
         );
       });
     } catch (e) {
@@ -428,7 +480,6 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
           builder: (context) => ArticleDetailPage(articleId: articleId),
         ),
       ).then((_) {
-        // 從編輯頁面返回後，可以考慮重新載入當前集合，確保數據是最新的
         if (_currentCollectionId != null) {
           _loadArticlesForCollection(_currentCollectionId!);
         }
