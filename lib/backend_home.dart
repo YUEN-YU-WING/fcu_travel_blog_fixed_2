@@ -61,7 +61,7 @@ class _BackendHomePageState extends State<BackendHomePage> {
     final List<Widget> pages = <Widget>[
       const ProfilePage(embedded: true),
       const SettingsPage(embedded: true),
-      const CreateTravelArticlePage(),
+      const CreateTravelArticlePage(embedded: true),
       const EditArticlePage(embedded: true),
       const MyArticlesPage(embedded: true),
       const AlbumFolderPage(embedded: true),

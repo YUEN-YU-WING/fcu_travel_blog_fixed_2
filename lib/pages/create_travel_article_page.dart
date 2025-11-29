@@ -13,7 +13,9 @@ import 'ai_edit_travel_article_page.dart';
 import '../album_folder_page.dart';
 
 class CreateTravelArticlePage extends StatefulWidget {
-  const CreateTravelArticlePage({super.key});
+  final bool embedded;
+
+  const CreateTravelArticlePage({super.key, this.embedded = false});
 
   @override
   State<CreateTravelArticlePage> createState() => _CreateTravelArticlePageState();
@@ -332,6 +334,7 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('創建遊記'),
+        automaticallyImplyLeading: !widget.embedded,
       ),
       body: Stepper(
         type: StepperType.vertical,

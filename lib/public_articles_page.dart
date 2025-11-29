@@ -18,6 +18,7 @@ class _PublicArticlesPageState extends State<PublicArticlesPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('所有公開遊記'),
+        automaticallyImplyLeading: !widget.embedded,
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance

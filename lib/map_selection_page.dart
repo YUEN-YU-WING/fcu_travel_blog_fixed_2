@@ -3,16 +3,23 @@ import 'pages/travelogue_map_page.dart'; // 舊的 MapPickerPage 更名為此
 import 'pages/travel_route_collection_page.dart'; // 新增的路徑地圖頁面
 import 'pages/travel_route_map_page.dart';
 
-class MapSelectionPage extends StatelessWidget {
+
+class MapSelectionPage extends StatefulWidget {
   final bool embedded;
 
   const MapSelectionPage({super.key, this.embedded = false});
 
   @override
+  State<MapSelectionPage> createState() => _MapSelectionPageState();
+}
+
+class _MapSelectionPageState extends State<MapSelectionPage> {
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('選擇地圖類型'),
+        automaticallyImplyLeading: !widget.embedded,
       ),
       body: Center(
         child: Column(
