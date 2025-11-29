@@ -35,14 +35,23 @@ Future<void> _logout(BuildContext context) async {
 }
 
 class BackendHomePage extends StatefulWidget {
-  const BackendHomePage({super.key});
+  // 接收一個初始選中索引
+  final int initialIndex;
+
+  const BackendHomePage({super.key, this.initialIndex = 0}); // 預設為 0
 
   @override
   State<BackendHomePage> createState() => _BackendHomePageState();
 }
 
 class _BackendHomePageState extends State<BackendHomePage> {
-  int _selectedIndex = 0;
+  late int _selectedIndex; // 改為 late，在 initState 中初始化
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialIndex; // 使用傳入的初始索引
+  }
 
   @override
   Widget build(BuildContext context) {

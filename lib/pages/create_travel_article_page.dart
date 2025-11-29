@@ -376,10 +376,10 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
             padding: const EdgeInsets.only(top: 16.0),
             child: Row(
               children: <Widget>[
-                if (_currentStep < getSteps().length - 1)
-                  ElevatedButton(
-                    onPressed: details.onStepContinue,
-                    child: const Text('下一步'),
+                if (_currentStep > 0)
+                  TextButton(
+                    onPressed: details.onStepCancel,
+                    child: const Text('上一步'),
                   ),
                 if (_currentStep == getSteps().length - 1)
                   _isGeneratingAIContent
@@ -389,10 +389,10 @@ class _CreateTravelArticlePageState extends State<CreateTravelArticlePage> {
                     child: const Text('AI 協助編輯'),
                   ),
                 const SizedBox(width: 8),
-                if (_currentStep > 0)
-                  TextButton(
-                    onPressed: details.onStepCancel,
-                    child: const Text('上一步'),
+                if (_currentStep < getSteps().length - 1)
+                  ElevatedButton(
+                    onPressed: details.onStepContinue,
+                    child: const Text('下一步'),
                   ),
               ],
             ),

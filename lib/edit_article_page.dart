@@ -46,9 +46,10 @@ class EditArticlePage extends StatefulWidget {
       initialLocation: args['location'] as LatLng?,
       initialAddress: args['address'] as String?,
       initialPlaceName: args['placeName'] as String?,
-      initialThumbnailImageUrl: args['thumbnailImageUrl'] as String?,
+      initialThumbnailImageUrl: args['thumbnailUrl'] as String?,
       initialThumbnailFileName: args['thumbnailFileName'] as String?,
       initialIsPublic: args['isPublic'] as bool?,
+      embedded: args['embedded'] as bool? ?? false,
     );
   }
 
@@ -160,7 +161,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
           _selectedLocation = LatLng(geoPoint.latitude, geoPoint.longitude);
         }
         _selectedAddress = data?['address'] ?? '';
-        _thumbnailImageUrl = data?['thumbnailImageUrl'] ?? '';
+        _thumbnailImageUrl = data?['thumbnailUrl'] ?? '';
         _thumbnailFileName = data?['thumbnailFileName'] ?? '';
         _isPublic = data?['isPublic'] ?? false;
       }
@@ -226,7 +227,7 @@ class _EditArticlePageState extends State<EditArticlePage> {
       if (widget.articleId == null) {
         await FirebaseFirestore.instance.collection('articles').add({
           ...dataToSave,
-          'authorUid': user.uid,
+          'ownerUid': user.uid,
           'createdAt': FieldValue.serverTimestamp(),
         });
       } else {
@@ -235,7 +236,12 @@ class _EditArticlePageState extends State<EditArticlePage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('儲存成功！')));
-      Navigator.pop(context, true);
+
+      // 如果不是嵌入模式，則 pop 並返回 true
+      if (!widget.embedded) {
+        Navigator.pop(context, true); // 返回 true 表示保存成功
+      }
+      // 如果是嵌入模式，則不做任何導航操作，讓頁面保持在 BackendHomePage 內部
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('儲存失敗: $e')));

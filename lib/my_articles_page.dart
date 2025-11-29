@@ -22,7 +22,7 @@ class MyArticlesPage extends StatelessWidget {
 
     final articlesStream = FirebaseFirestore.instance
         .collection('articles')
-        .where('authorUid', isEqualTo: user.uid)
+        .where('ownerUid', isEqualTo: user.uid)
         .orderBy('createdAt', descending: true)
         .snapshots();
 

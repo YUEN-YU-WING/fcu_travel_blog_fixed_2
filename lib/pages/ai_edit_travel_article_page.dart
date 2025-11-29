@@ -7,7 +7,11 @@ import '../models/travel_article_data.dart';
 import '../services/article_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../edit_article_page.dart';
+import '../my_articles_page.dart';
+import '../backend_home.dart'; // 導入 BackendHomePage
 
 class AiEditTravelArticlePage extends StatefulWidget {
   final TravelArticleData articleData;
@@ -62,25 +66,52 @@ class _AiEditTravelArticlePageState extends State<AiEditTravelArticlePage> {
     try {
       widget.articleData.generatedHtmlContent = _htmlContentController.text;
       widget.articleData.title = _titleController.text;
+      widget.articleData.ownerUid = user.uid; // 確保設置 ownerUid
 
-      await ArticleService.saveArticle({
-        'title': widget.articleData.title,
-        'placeName': widget.articleData.placeName,
-        'address': widget.articleData.address,
-        'location': widget.articleData.location,
-        'thumbnailImageUrl': widget.articleData.thumbnailUrl,
-        'content': widget.articleData.generatedHtmlContent,
-        'materialImageUrls': widget.articleData.materialImageUrls,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'authorUid': user.uid, // <-- 使用實際的用戶 UID
-      });
+      Map<String, dynamic> articleDataToSave = widget.articleData.toFirestore();
+
+      // 注意：根據你的 EditArticlePage.dart，Firestore 集合名稱是 'articles'
+      final DocumentReference docRef = await FirebaseFirestore.instance.collection('articles').add(articleDataToSave);
+      final String newArticleId = docRef.id;
+
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('文章已保存！')),
       );
-      Navigator.popUntil(context, (route) => route.isFirst);
+
+      // 將 pushReplacement 改為 push
+      // 這樣 AiEdit 頁面會等待 Edit 頁面結束，並且保持 mounted 狀態
+      final bool? saveSuccess = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => EditArticlePage(
+            articleId: newArticleId,
+            initialTitle: widget.articleData.title,
+            initialContent: widget.articleData.generatedHtmlContent,
+            initialLocation: widget.articleData.location != null
+                ? LatLng(widget.articleData.location!.latitude, widget.articleData.location!.longitude)
+                : null,
+            initialAddress: widget.articleData.address,
+            initialPlaceName: widget.articleData.placeName,
+            initialThumbnailImageUrl: widget.articleData.thumbnailUrl,
+            embedded: false,
+          ),
+        ),
+      );
+
+      // 當 EditArticlePage 保存並 pop(true) 回來後，這裡會繼續執行
+      if (saveSuccess == true && mounted) {
+        // 跳轉到 BackendHomePage 的 MyArticlesPage (索引為 4)
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const BackendHomePage(initialIndex: 4),
+          ),
+              (route) => false,
+        );
+      }
+
     } catch (e) {
       print('Error saving article: $e');
       ScaffoldMessenger.of(context).showSnackBar(
