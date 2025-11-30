@@ -210,6 +210,11 @@ class _EditArticlePageState extends State<EditArticlePage> {
       // 🔥 生成關鍵字 (包含標題、地名、去除 HTML 的內容)
       final keywords = _generateKeywords(title, content, placeName);
 
+      // ✅ 新增：準備作者資訊 (Snapshot)
+      // 這樣可以確保文章顯示時不用再去查使用者資料表
+      final String authorName = user.displayName ?? '未命名用戶';
+      final String? authorPhotoUrl = user.photoURL;
+
       final dataToSave = {
         'title': title,
         'content': content,
@@ -218,19 +223,26 @@ class _EditArticlePageState extends State<EditArticlePage> {
         'address': _selectedAddress,
         'thumbnailImageUrl': _thumbnailImageUrl,
         'thumbnailFileName': _thumbnailFileName,
-        // 'isPublic': _isPublic, // <--- 移除此行，因為現在由 MyArticlesPage 管理
         'keywords': keywords,
         'updatedAt': FieldValue.serverTimestamp(),
+        // ✅ 寫入作者資訊
+        'authorName': authorName,
+        'authorPhotoUrl': authorPhotoUrl,
       };
 
       if (widget.articleId == null) {
+        // 新增文章
         await FirebaseFirestore.instance.collection('articles').add({
           ...dataToSave,
           'ownerUid': user.uid,
           'createdAt': FieldValue.serverTimestamp(),
-          'isPublic': false, // <--- 新增：新文章預設為不公開
+          'isPublic': false, // 新文章預設為不公開
         });
       } else {
+        // 更新文章
+        // 注意：這裡也會更新 authorName 和 authorPhotoUrl
+        // 如果您希望舊文章保留舊的頭像/名字，可以把這兩個欄位移到上面的 if (widget.articleId == null) 裡面
+        // 但通常更新文章時順便更新作者資訊是合理的
         await FirebaseFirestore.instance.collection('articles').doc(widget.articleId).update(dataToSave);
       }
 

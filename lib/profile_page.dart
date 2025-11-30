@@ -1,7 +1,12 @@
 // lib/profile_page.dart
+import 'package:flutter/foundation.dart'; // 用於 kIsWeb (雖然這裡用 readAsBytes 通用，但引入它是好習慣)
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // 引入 Firestore
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+
+// ⚠️ 注意：移除了 import 'dart:io'; 因為 Web 不支援
 
 class ProfilePage extends StatefulWidget {
   final bool embedded;
@@ -13,11 +18,8 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final TextEditingController _bioController = TextEditingController(); // 用於編輯簡介
-
-  // 在 initState 或 build 之前，設置 Firestore 的 Stream
-  // 由於我們需要在這裡同時顯示 Auth 和 Firestore 的數據，
-  // 並且可能需要編輯，所以會稍微複雜一點。
+  final TextEditingController _bioController = TextEditingController();
+  bool _isUploading = false;
 
   @override
   void dispose() {
@@ -25,7 +27,76 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
-  // 更新 Firestore 中的用戶資料
+  // ✅ 修改：兼容 Web 與 Mobile 的圖片上傳邏輯
+  Future<void> _pickAndUploadImage(User user) async {
+    final ImagePicker picker = ImagePicker();
+
+    // 1. 選擇圖片
+    final XFile? image = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 70, // 稍微壓縮圖片
+      maxWidth: 512,    // 限制寬度，避免上傳過大頭像
+      maxHeight: 512,
+    );
+
+    if (image == null) return;
+
+    setState(() {
+      _isUploading = true;
+    });
+
+    try {
+      // 2. 建立 Storage 參考路徑
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('user_avatars')
+          .child('${user.uid}.jpg');
+
+      // 3. 讀取圖片數據 (Web 和 Mobile 通用)
+      // 在 Web 上，image.path 是一個 blob URL，不能給 File 使用
+      // 所以我們直接讀取 bytes
+      final Uint8List imageBytes = await image.readAsBytes();
+
+      // 4. 設定 Metadata (讓瀏覽器知道這是圖片)
+      final metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+      );
+
+      // 5. 使用 putData 上傳 (代替 putFile)
+      await storageRef.putData(imageBytes, metadata);
+
+      // 6. 取得下載連結
+      final String downloadUrl = await storageRef.getDownloadURL();
+
+      // 7. 更新 Firestore
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'photoURL': downloadUrl,
+      });
+
+      // 8. 更新 Auth current user (讓 APP 顯示即時更新)
+      await user.updatePhotoURL(downloadUrl);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('頭像更新成功！')),
+        );
+      }
+    } catch (e) {
+      print("Upload error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('上傳失敗: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
+    }
+  }
+
   Future<void> _updateUserProfileInFirestore(User? firebaseUser) async {
     if (firebaseUser == null) return;
 
@@ -35,10 +106,10 @@ class _ProfilePageState extends State<ProfilePage> {
         'displayName': firebaseUser.displayName,
         'photoURL': firebaseUser.photoURL,
         'email': firebaseUser.email,
-        'bio': _bioController.text, // 更新簡介
-        'updatedAt': FieldValue.serverTimestamp(), // 記錄更新時間
+        'bio': _bioController.text,
+        'updatedAt': FieldValue.serverTimestamp(),
       },
-      SetOptions(merge: true), // 使用 merge，只更新指定字段，不覆蓋整個文檔
+      SetOptions(merge: true),
     ).then((_) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('個人資料已更新！')),
@@ -52,7 +123,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    // 同時監聽 FirebaseAuth 的用戶變化和 Firestore 的用戶文檔變化
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.userChanges(),
       builder: (context, authSnapshot) {
@@ -73,29 +143,16 @@ class _ProfilePageState extends State<ProfilePage> {
           );
         }
 
-        // 當 Firebase Auth 用戶存在時，監聽其在 Firestore 中的文檔
         return StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance.collection('users').doc(firebaseUser.uid).snapshots(),
           builder: (context, firestoreSnapshot) {
-            if (firestoreSnapshot.connectionState == ConnectionState.waiting) {
-              return Scaffold(
-                appBar: AppBar(
-                  title: const Text('個人資料'),
-                  automaticallyImplyLeading: !widget.embedded,
-                ),
-                body: const Center(child: CircularProgressIndicator()),
-              );
-            }
-
-            // 從 Firestore 獲取自定義資料，如果沒有，則使用預設值
             Map<String, dynamic> firestoreData = firestoreSnapshot.data?.data() as Map<String, dynamic>? ?? {};
-            final String bio = firestoreData['bio'] ?? '這個用戶還沒有填寫簡介。';
+            final String bio = firestoreData['bio'] ?? '';
+            final String? currentPhotoUrl = firestoreData['photoURL'] ?? firebaseUser.photoURL;
 
-            // 初始化簡介編輯器
-            if (_bioController.text.isEmpty) { // 避免每次 rebuild 都重設，導致編輯中文字被覆蓋
+            if (_bioController.text.isEmpty && bio.isNotEmpty) {
               _bioController.text = bio;
             }
-
 
             return Scaffold(
               appBar: AppBar(
@@ -112,37 +169,54 @@ class _ProfilePageState extends State<ProfilePage> {
                       style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 32),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        CircleAvatar(
-                          radius: 40,
-                          backgroundImage: firebaseUser.photoURL != null && firebaseUser.photoURL!.isNotEmpty
-                              ? NetworkImage(firebaseUser.photoURL!)
-                              : null,
-                          backgroundColor: Colors.blueGrey[300],
-                          child: (firebaseUser.photoURL == null || firebaseUser.photoURL!.isEmpty)
-                              ? const Icon(Icons.person, size: 50, color: Colors.white)
-                              : null,
-                        ),
-                        const SizedBox(width: 32),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('名稱：${firebaseUser.displayName ?? "未設定"}',
-                                  style: const TextStyle(fontSize: 20)),
-                              const SizedBox(height: 8),
-                              Text('信箱：${firebaseUser.email ?? "未設定"}',
-                                  style: const TextStyle(fontSize: 16)),
-                              const SizedBox(height: 8),
-                              Text('UID：${firebaseUser.uid}',
-                                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                            ],
+                    Center(
+                      child: Stack(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.grey.shade300, width: 2),
+                            ),
+                            child: CircleAvatar(
+                              radius: 60,
+                              backgroundImage: currentPhotoUrl != null && currentPhotoUrl.isNotEmpty
+                                  ? NetworkImage(currentPhotoUrl)
+                                  : null,
+                              backgroundColor: Colors.blueGrey[100],
+                              child: _isUploading
+                                  ? const CircularProgressIndicator()
+                                  : (currentPhotoUrl == null || currentPhotoUrl.isEmpty)
+                                  ? const Icon(Icons.person, size: 70, color: Colors.white)
+                                  : null,
+                            ),
                           ),
-                        ),
-                      ],
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: InkWell(
+                              onTap: _isUploading ? null : () => _pickAndUploadImage(firebaseUser),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: const BoxDecoration(
+                                  color: Colors.blue,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(height: 32),
+                    Text('名稱：${firebaseUser.displayName ?? "未設定"}',
+                        style: const TextStyle(fontSize: 20)),
+                    const SizedBox(height: 8),
+                    Text('信箱：${firebaseUser.email ?? "未設定"}',
+                        style: const TextStyle(fontSize: 16, color: Colors.grey)),
+                    const SizedBox(height: 8),
+                    Text('UID：${firebaseUser.uid}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     const SizedBox(height: 32),
                     const Text(
                       '個人簡介：',
