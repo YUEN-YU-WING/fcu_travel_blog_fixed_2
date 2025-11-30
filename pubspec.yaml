@@ -58,6 +58,7 @@ dependencies:
     git:
       url: https://github.com/YUEN-YU-WING/flutter_markdown_editor.git
       ref: main
+  google_sign_in: ^6.2.2
 
 
 dev_dependencies:

@@ -83,16 +83,10 @@ class _EditArticlePageState extends State<EditArticlePage> {
     _selectedAddress = widget.initialAddress;
     _thumbnailImageUrl = widget.initialThumbnailImageUrl;
     _thumbnailFileName = widget.initialThumbnailFileName;
-    // _isPublic = widget.initialIsPublic ?? false; // <--- 移除此行
 
-    // 如果需要，從 Firestore 補齊完整文章資料
-    if (widget.articleId != null &&
-        (_titleController.text.isEmpty ||
-            _initialEditorContent == null ||
-            _selectedLocation == null ||
-            _placeNameController.text.isEmpty ||
-            _thumbnailImageUrl == null)) {
-      // || widget.initialIsPublic == null)) { // <--- 移除此行
+    // 原本的邏輯是「如果資料缺漏才去抓」，導致如果有舊資料(如舊縮圖)就會略過更新。
+    // 改為：「只要是編輯舊文章 (articleId != null)，就強制去 Firestore 抓最新資料」。
+    if (widget.articleId != null) {
       _fetchArticle();
     }
   }
@@ -143,7 +137,12 @@ class _EditArticlePageState extends State<EditArticlePage> {
   }
 
   Future<void> _fetchArticle() async {
-    setState(() => _isLoading = true);
+    // 只有在完全沒有標題（代表可能是第一次載入且沒傳參）時才顯示全螢幕 Loading
+    // 這樣如果有舊資料，使用者會先看到舊的，然後瞬間跳轉成新的，體驗較流暢
+    if (_titleController.text.isEmpty) {
+      setState(() => _isLoading = true);
+    }
+
     try {
       final doc = await FirebaseFirestore.instance
           .collection('articles')
@@ -151,18 +150,28 @@ class _EditArticlePageState extends State<EditArticlePage> {
           .get();
       if (doc.exists) {
         final data = doc.data();
-        _titleController.text = data?['title'] ?? '';
-        _placeNameController.text = data?['placeName'] ?? '';
-        _initialEditorContent = data?['content'];
 
-        if (data?['location'] != null) {
-          final GeoPoint geoPoint = data!['location'];
-          _selectedLocation = LatLng(geoPoint.latitude, geoPoint.longitude);
+        // 這裡加上 mounted 檢查，並使用 setState 更新畫面
+        if (!mounted) return;
+        setState(() {
+          _titleController.text = data?['title'] ?? '';
+          _placeNameController.text = data?['placeName'] ?? '';
+          _initialEditorContent = data?['content'];
+
+          if (data?['location'] != null) {
+            final GeoPoint geoPoint = data!['location'];
+            _selectedLocation = LatLng(geoPoint.latitude, geoPoint.longitude);
+          }
+          _selectedAddress = data?['address'] ?? '';
+          // 這裡會把舊的縮圖 URL 覆蓋成最新的
+          _thumbnailImageUrl = data?['thumbnailImageUrl'] ?? ''; // 注意：這裡要確認你的 Firestore 欄位是 thumbnailUrl 還是 thumbnailImageUrl
+          _thumbnailFileName = data?['thumbnailFileName'] ?? '';
+        });
+
+        // 如果編輯器已經準備好了，更新編輯器內容
+        if (_isEditorReady && _initialEditorContent != null) {
+          _htmlEditorController.setText(_initialEditorContent!);
         }
-        _selectedAddress = data?['address'] ?? '';
-        _thumbnailImageUrl = data?['thumbnailUrl'] ?? '';
-        _thumbnailFileName = data?['thumbnailFileName'] ?? '';
-        // _isPublic = data?['isPublic'] ?? false; // <--- 移除此行
       }
     } catch (e) {
       if (!mounted) return;
