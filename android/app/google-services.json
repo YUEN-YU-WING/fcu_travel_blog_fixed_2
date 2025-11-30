@@ -12,7 +12,20 @@
           "package_name": "com.example.fcu_travel_blog_fixed_2"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "14004352245-t7tfeq5afsg2rugbbdgmoqvl116eebef.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.fcu_travel_blog_fixed_2",
+            "certificate_hash": "14524ebe85137978cb4cab4ab1b80f62dc4011a2"
+          }
+        },
+        {
+          "client_id": "14004352245-9f6hmvjt3ms4qq91mheqc03id8utri30.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBqC6onYtfDkmV2nOpE0jSxXCy0o5LzuWk"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "14004352245-9f6hmvjt3ms4qq91mheqc03id8utri30.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "14004352245-opqjr5nue8i3d8baif1r70m02q2tpg0a.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.fcuTravelBlogFixed2"
+              }
+            }
+          ]
         }
       }
     }

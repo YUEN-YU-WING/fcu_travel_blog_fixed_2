@@ -363,10 +363,20 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
             const Divider(),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              // 如果你有作者頭像URL，可以用 CircleAvatar
-              leading: const CircleAvatar(child: Icon(Icons.person)),
+              // 修改這裡：判斷是否有 authorPhotoUrl
+              leading: CircleAvatar(
+                backgroundImage: (_articleData?['authorPhotoUrl'] != null &&
+                    _articleData!['authorPhotoUrl'].isNotEmpty)
+                    ? NetworkImage(_articleData!['authorPhotoUrl'])
+                    : null,
+                // 如果沒有圖片，顯示預設的人像 Icon
+                child: (_articleData?['authorPhotoUrl'] == null ||
+                    _articleData!['authorPhotoUrl'].isEmpty)
+                    ? const Icon(Icons.person)
+                    : null,
+              ),
               title: Text(
-                _articleData?['authorName'] ?? _articleData?['authorUid'] ?? '未知作者', // 嘗試顯示名字
+                _articleData?['authorName'] ?? _articleData?['authorUid'] ?? '未知作者',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               subtitle: Text(
