@@ -293,11 +293,11 @@ class _AlbumFolderPageState extends State<AlbumFolderPage> {
 
           return GridView.builder(
             padding: const EdgeInsets.all(8),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              childAspectRatio: 1,
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 200, // 設定每個相簿項目的最大寬度為 200px
+              crossAxisSpacing: 8,     // 水平間距
+              mainAxisSpacing: 8,      // 垂直間距
+              childAspectRatio: 1,     // 長寬比 1:1 (正方形)
             ),
             itemCount: albums.length,
             itemBuilder: (context, index) {

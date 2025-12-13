@@ -51,9 +51,15 @@ class _TravelRouteCollectionPageState extends State<TravelRouteCollectionPage> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.grey[100], // 讓背景稍微灰一點，突顯卡片
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text('我的行程集合'),
+
+        // 🔥 修改這裡：
+        // 如果是嵌入模式 (embedded 為 true)，就不顯示返回鍵 (!true = false)
+        // 如果不是嵌入模式 (embedded 為 false)，就自動顯示返回鍵 (!false = true)
+        automaticallyImplyLeading: !widget.embedded,
+
         elevation: 0,
         actions: [
           IconButton(
