@@ -280,7 +280,7 @@ class _HomePageState extends State<HomePage> {
             Map<String, dynamic> data = document.data()! as Map<String, dynamic>;
             final String articleId = document.id;
 
-            final String authorUid = data['authorUid'] ?? '';
+            final String ownerUid = data['ownerUid'] ?? '';
             // ✅ 確保這裡有讀取 authorName
             final String authorName = data['authorName'] ?? '匿名作者';
             final String authorPhotoUrl = data['authorPhotoUrl'] ?? '';
@@ -312,11 +312,11 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       // --- 作者資訊區塊 (Author Info Row) ---
                       InkWell(
-                        onTap: authorUid.isNotEmpty ? () {
+                        onTap: ownerUid.isNotEmpty ? () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => FriendProfilePage(friendId: authorUid),
+                              builder: (context) => FriendProfilePage(friendId: ownerUid),
                             ),
                           );
                         } : null,

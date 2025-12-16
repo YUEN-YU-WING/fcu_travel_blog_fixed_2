@@ -64,7 +64,7 @@ class _MyAppBarState extends State<MyAppBar> {
   }
 
   void _defaultGoHome(BuildContext context) {
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
   Widget _buildAvatarButton(BuildContext context) {

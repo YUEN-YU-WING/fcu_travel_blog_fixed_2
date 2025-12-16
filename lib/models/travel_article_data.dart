@@ -23,6 +23,8 @@ class TravelArticleData {
   // ✅ 新增：作者資訊快照 (Snapshot)
   String? authorName;     // 作者名稱
   String? authorPhotoUrl; // 作者頭像 URL
+  String? backgroundImageUrl;
+
 
   TravelArticleData({
     this.id,
@@ -43,6 +45,7 @@ class TravelArticleData {
     // 初始化新增字段
     this.authorName,      // ✅
     this.authorPhotoUrl,  // ✅
+    this.backgroundImageUrl,
   });
 
   factory TravelArticleData.fromFirestore(DocumentSnapshot doc) {
@@ -68,6 +71,7 @@ class TravelArticleData {
       // 讀取新增字段
       authorName: data['authorName'],           // ✅
       authorPhotoUrl: data['authorPhotoUrl'],   // ✅
+      backgroundImageUrl: data['backgroundImageUrl'],
     );
   }
 
@@ -90,6 +94,7 @@ class TravelArticleData {
       // 寫入新增字段
       'authorName': authorName,         // ✅
       'authorPhotoUrl': authorPhotoUrl, // ✅
+      'backgroundImageUrl': backgroundImageUrl,
     };
   }
 }
