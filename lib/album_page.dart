@@ -29,7 +29,7 @@ class _AlbumPageState extends State<AlbumPage> {
   Set<String> _selectedPhotoIds = {}; // 用於追蹤已選中的圖片 ID
   final List<Map<String, dynamic>> _selectedPhotoData = []; // 用於儲存已選中圖片的 URL 和 fileName
 
-
+  // ✅ 修改：支援多圖上傳
   Future<void> _pickAndUploadImage() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -39,47 +39,78 @@ class _AlbumPageState extends State<AlbumPage> {
       return;
     }
 
-    final pickedFile = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (pickedFile == null) return;
+    // 1. 改用 pickMultiImage 來支援多選
+    final List<XFile> pickedFiles = await _picker.pickMultiImage(imageQuality: 80);
+
+    // 如果使用者沒有選擇任何圖片，直接返回
+    if (pickedFiles.isEmpty) return;
 
     setState(() => _isUploading = true);
 
-    final bytes = await pickedFile.readAsBytes();
-    final fileName = '${DateTime.now().millisecondsSinceEpoch}_${user.uid}.jpg';
-    final storagePath = 'user_albums/${user.uid}/$fileName';
-    final storageRef = FirebaseStorage.instance.ref().child(storagePath);
+    int successCount = 0;
+    String? lastDownloadUrl; // 用來記錄最後一張上傳成功的圖片 URL，用於更新封面
 
     try {
-      final uploadTask = await storageRef.putData(bytes);
-      final downloadUrl = await uploadTask.ref.getDownloadURL();
+      // 2. 遍歷所有選擇的圖片進行上傳
+      for (int i = 0; i < pickedFiles.length; i++) {
+        final pickedFile = pickedFiles[i];
+        final bytes = await pickedFile.readAsBytes();
 
-      // 寫入 Firestore
-      await FirebaseFirestore.instance.collection('photos').add({
-        'storagePath': storagePath,
-        'url': downloadUrl,
-        'ownerUid': user.uid,
-        'uploadedAt': FieldValue.serverTimestamp(),
-        'fileName': fileName,
-        'albumId': widget.albumId,
-        'imageUrl': downloadUrl, // 為了統一，建議也將 url 存儲為 imageUrl
-      });
+        // 為了確保檔名唯一，檔名加入迴圈索引 (i)
+        final fileName = '${DateTime.now().millisecondsSinceEpoch}_${i}_${user.uid}.jpg';
+        final storagePath = 'user_albums/${user.uid}/$fileName';
+        final storageRef = FirebaseStorage.instance.ref().child(storagePath);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('照片上傳成功！')),
-      );
+        // 上傳到 Storage
+        final uploadTask = await storageRef.putData(bytes);
+        final downloadUrl = await uploadTask.ref.getDownloadURL();
 
-      final albumRef = FirebaseFirestore.instance.collection('albums').doc(widget.albumId);
+        lastDownloadUrl = downloadUrl;
 
-      await albumRef.update({
-        'coverUrl': downloadUrl, // 最新一張當封面
-        'photoCount': FieldValue.increment(1),
-      });
+        // 寫入 Firestore (photos collection)
+        await FirebaseFirestore.instance.collection('photos').add({
+          'storagePath': storagePath,
+          'url': downloadUrl,
+          'ownerUid': user.uid,
+          'uploadedAt': FieldValue.serverTimestamp(),
+          'fileName': fileName,
+          'albumId': widget.albumId,
+          'imageUrl': downloadUrl, // 統一欄位名稱
+        });
+
+        successCount++;
+      }
+
+      // 3. 批次更新相簿資訊 (只更新一次 DB，節省寫入次數)
+      if (successCount > 0) {
+        final albumRef = FirebaseFirestore.instance.collection('albums').doc(widget.albumId);
+
+        Map<String, dynamic> updateData = {
+          'photoCount': FieldValue.increment(successCount),
+        };
+
+        // 將最新上傳的那張設為封面
+        if (lastDownloadUrl != null) {
+          updateData['coverUrl'] = lastDownloadUrl;
+        }
+
+        await albumRef.update(updateData);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('成功上傳 $successCount 張照片！')),
+          );
+        }
+      }
+
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上傳失敗: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('上傳失敗: $e')),
+        );
+      }
     } finally {
-      setState(() => _isUploading = false);
+      if (mounted) setState(() => _isUploading = false);
     }
   }
 
