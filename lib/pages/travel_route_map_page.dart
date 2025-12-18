@@ -141,6 +141,7 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
   String? _currentCollectionId;
   String? _currentCollectionName;
   final Map<String, BitmapDescriptor> _thumbnailCache = {};
+  final GlobalKey _mapKey = GlobalKey();
 
   // 自定義資訊窗口相關狀態
   TravelArticleData? _selectedArticleForInfoWindow;
@@ -420,48 +421,34 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
   }
 
 
-  void _showCustomInfoWindow(TravelArticleData article) async {
+  void _showCustomInfoWindow(TravelArticleData article) {
     if (mapController == null || article.location == null) return;
+
+    // 1. 讓地圖鏡頭移動到該地點 (讓 Marker 跑到畫面中間)
+    mapController!.animateCamera(
+      CameraUpdate.newLatLng(LatLng(article.location!.latitude, article.location!.longitude)),
+    );
+
+    // 2. 計算視窗位置 (固定在畫面中央上方)
+    // 模仿 travelogue_map_page.dart 的邏輯
+    final RenderBox renderBox = context.findRenderObject() as RenderBox;
+    final Size size = renderBox.size;
+    final double screenWidth = size.width;
+    final double screenHeight = size.height;
+
+    // InfoWindow 寬度固定為 300
+    // 我們將其置中：(螢幕寬度 / 2) - (視窗寬度 / 2)
+    // 高度位置：(螢幕高度 / 2) - 偏移量
+    // 偏移量 280 大約是讓視窗底部剛好在畫面中心點(Marker位置)的上方
+    final Offset position = Offset(
+        screenWidth / 2 - 150,
+        screenHeight / 2 - 280
+    );
 
     setState(() {
       _selectedArticleForInfoWindow = article;
-      _infoWindowOffset = null;
+      _infoWindowOffset = position;
     });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateInfoWindowPosition(LatLng(article.location!.latitude, article.location!.longitude));
-    });
-
-    await mapController!.animateCamera(
-      CameraUpdate.newLatLng(LatLng(article.location!.latitude, article.location!.longitude)),
-    );
-  }
-
-  void _updateInfoWindowPosition(LatLng markerLatLng) async {
-    if (mapController == null || !mounted) return;
-
-    try {
-      ScreenCoordinate screenCoordinate = await mapController!.getScreenCoordinate(markerLatLng);
-      RenderBox? renderBox = context.findRenderObject() as RenderBox?;
-
-      if (renderBox == null || !renderBox.attached) {
-        return;
-      }
-
-      Offset offset = renderBox.localToGlobal(Offset.zero);
-
-      setState(() {
-        final double infoWindowWidth = 300;
-        final double infoWindowHeight = 280; // 稍微增加高度以容納新的排版
-
-        _infoWindowOffset = Offset(
-          screenCoordinate.x.toDouble() + offset.dx - (infoWindowWidth / 2),
-          screenCoordinate.y.toDouble() + offset.dy - infoWindowHeight - 20, // -20 是為了讓視窗在 Marker 上方留點空隙
-        );
-      });
-    } catch (e) {
-      print("Error getting screen coordinate: $e");
-    }
   }
 
   void _closeCustomInfoWindow() {
@@ -523,6 +510,7 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
       body: Stack(
         children: [
           GoogleMap(
+            key: _mapKey, // ✅ 綁定 Key
             onMapCreated: _onMapCreated,
             initialCameraPosition: const CameraPosition(
               target: _initialCameraPosition,
@@ -536,19 +524,13 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
             onTap: (_) {
               _closeCustomInfoWindow();
             },
-            onCameraMove: (CameraPosition position) {
-              if (_selectedArticleForInfoWindow != null && _selectedArticleForInfoWindow!.location != null) {
-                _updateInfoWindowPosition(LatLng(
-                  _selectedArticleForInfoWindow!.location!.latitude,
-                  _selectedArticleForInfoWindow!.location!.longitude,
-                ));
-              }
-            },
           ),
+          // ... GoogleMap
+          // ... 在 Stack 中 ...
           if (_selectedArticleForInfoWindow != null && _infoWindowOffset != null)
             Positioned(
               left: _infoWindowOffset!.dx,
-              top: _infoWindowOffset!.dy,
+              top: _infoWindowOffset!.dy, // ✅ 改回使用 top，配合上面的計算
               child: CustomInfoWindow(
                 article: _selectedArticleForInfoWindow!,
                 onClose: _closeCustomInfoWindow,
