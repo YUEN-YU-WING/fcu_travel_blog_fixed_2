@@ -306,7 +306,7 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
         const double offset = padding / 2;
 
         // 定義照片的圓形區域 (加上偏移量)
-        final Rect imageRect = Rect.fromLTWH(offset, offset, imageSize, imageSize);
+        final Rect imageRect = Rect.fromLTWH(offset, offset + 15, imageSize, imageSize);
 
         // 裁剪圓形 (只針對照片區域)
         canvas.save(); // 保存畫布狀態
@@ -333,8 +333,22 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
           ..style = PaintingStyle.stroke
           ..strokeWidth = 4.0
           ..isAntiAlias = true;
-        // 圓心座標也要加上 offset
-        canvas.drawCircle(Offset(canvasSize / 2, canvasSize / 2), imageSize / 2 - 2.0, borderPaint);
+
+        // ------------- 這裡控制圓心位置 -------------
+        // 建議寫法：使用跟照片一樣的基準 (offset)
+        // 這樣不管你照片怎麼移，框都會自動對準
+
+        double centerX = offset + imageSize / 2;       // X 軸中心
+        double centerY = (offset + imageSize / 2) + 15;       // Y 軸中心 <--- 這是垂直變數
+
+        // 如果你想要手動微調垂直位置，可以在 centerY 後面加減數字
+        // 例如： double centerY = (offset + imageSize / 2) + 15;
+
+        canvas.drawCircle(
+            Offset(centerX, centerY), // <--- 傳入調整後的中心點
+            imageSize / 2 - 2.0,      // 半徑
+            borderPaint
+        );
 
         // ==========================================
         // 4. 繪製順序標籤 (懸浮在右上角)
@@ -345,7 +359,7 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
         // 這裡設定在照片圓形的右上邊緣
         // X 座標: offset + imageSize - 稍微往內一點
         // Y 座標: offset + 稍微往下依點
-        final Offset badgeCenter = Offset(offset + imageSize - 10, offset + 15);
+        final Offset badgeCenter = Offset(offset + imageSize - 10, offset + 30);
 
         // 畫陰影 (讓球看起來立體一點，可選)
         canvas.drawCircle(
