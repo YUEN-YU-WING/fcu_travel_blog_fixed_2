@@ -204,7 +204,7 @@ class _CollectionCard extends StatelessWidget {
 
       if (doc.exists && doc.data() != null) {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        return data['thumbnailUrl'] as String?;
+        return data['thumbnailImageUrl'] as String?;
       }
     } catch (e) {
       print("Error fetching thumbnail: $e");
