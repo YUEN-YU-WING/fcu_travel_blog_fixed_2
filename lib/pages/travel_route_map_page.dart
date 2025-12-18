@@ -271,32 +271,48 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
   }
 
   // 修改：實現圓形標記圖片 (移植自 travelogue_map_page.dart)
-  Future<BitmapDescriptor> _getCustomMarkerIcon(String imageUrl, String markerId) async {
-    if (_thumbnailCache.containsKey(markerId)) {
-      return _thumbnailCache[markerId]!;
+  // 修改後的方法：新增 order 參數
+  Future<BitmapDescriptor> _getCustomMarkerIcon(String imageUrl, String markerId, int order) async {
+    String cacheKey = '${markerId}_$order';
+    if (_thumbnailCache.containsKey(cacheKey)) {
+      return _thumbnailCache[cacheKey]!;
     }
 
     try {
       final response = await http.get(Uri.parse(imageUrl));
       if (response.statusCode == 200) {
         final Uint8List bytes = response.bodyBytes;
-
-        // 1. 解碼圖片
         final ui.Codec codec = await ui.instantiateImageCodec(bytes);
         final ui.FrameInfo frameInfo = await codec.getNextFrame();
         final ui.Image image = frameInfo.image;
 
-        // 2. 設定畫布與尺寸 (調整為 100 以獲得更清晰的圓形)
-        const double size = 100.0;
+        // ==========================================
+        // 1. 定義尺寸
+        // ==========================================
+        const double imageSize = 100.0; // 照片本身的直徑
+        const double padding = 30.0;    // 預留給數字球的空間 (邊距)
+        const double canvasSize = imageSize + padding; // 總畫布大小 (130)
+
         final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
-        final Canvas canvas = Canvas(pictureRecorder);
-        final Rect rect = Rect.fromLTWH(0, 0, size, size);
+        // 畫布設為較大的尺寸
+        final Canvas canvas = Canvas(pictureRecorder, Rect.fromLTWH(0, 0, canvasSize, canvasSize));
+
         final Paint paint = Paint()..isAntiAlias = true;
 
-        // 3. 畫出圓形裁切區域
-        canvas.clipPath(Path()..addOval(rect));
+        // ==========================================
+        // 2. 繪製照片 (置中)
+        // ==========================================
+        // 計算照片在畫布中的偏移量，讓它居中
+        const double offset = padding / 2;
 
-        // 4. 計算圖片來源矩形，確保居中裁切成正方形
+        // 定義照片的圓形區域 (加上偏移量)
+        final Rect imageRect = Rect.fromLTWH(offset, offset, imageSize, imageSize);
+
+        // 裁剪圓形 (只針對照片區域)
+        canvas.save(); // 保存畫布狀態
+        canvas.clipPath(Path()..addOval(imageRect));
+
+        // 計算圖片來源尺寸 (保持原本的居中裁切邏輯)
         final double sizeMin = image.width < image.height ? image.width.toDouble() : image.height.toDouble();
         final Rect srcRect = Rect.fromLTWH(
             (image.width - sizeMin) / 2,
@@ -305,31 +321,88 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
             sizeMin
         );
 
-        // 5. 將圖片繪製到圓形區域內
         paint.filterQuality = FilterQuality.high;
-        canvas.drawImageRect(image, srcRect, rect, paint);
+        canvas.drawImageRect(image, srcRect, imageRect, paint);
+        canvas.restore(); // 恢復畫布，取消裁剪限制，這樣才能在照片外面畫數字球
 
-        // 6. 加上白色邊框
+        // ==========================================
+        // 3. 繪製白色邊框
+        // ==========================================
         final Paint borderPaint = Paint()
           ..color = Colors.white
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 4.0 // 邊框寬度
+          ..strokeWidth = 4.0
           ..isAntiAlias = true;
-        canvas.drawCircle(Offset(size / 2, size / 2), size / 2 - 2.0, borderPaint);
+        // 圓心座標也要加上 offset
+        canvas.drawCircle(Offset(canvasSize / 2, canvasSize / 2), imageSize / 2 - 2.0, borderPaint);
 
-        // 7. 將畫布轉換為 PNG 圖片數據
+        // ==========================================
+        // 4. 繪製順序標籤 (懸浮在右上角)
+        // ==========================================
+        final double badgeRadius = 16.0;
+
+        // 計算右上角位置 (利用三角函數算出 45 度角的位置，或者直接抓概略位置)
+        // 這裡設定在照片圓形的右上邊緣
+        // X 座標: offset + imageSize - 稍微往內一點
+        // Y 座標: offset + 稍微往下依點
+        final Offset badgeCenter = Offset(offset + imageSize - 10, offset + 15);
+
+        // 畫陰影 (讓球看起來立體一點，可選)
+        canvas.drawCircle(
+            badgeCenter + const Offset(2, 2),
+            badgeRadius,
+            Paint()..color = Colors.black.withOpacity(0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2)
+        );
+
+        // 畫數字球底色 (藍色)
+        final Paint badgeBgPaint = Paint()
+          ..color = Colors.blueAccent
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(badgeCenter, badgeRadius, badgeBgPaint);
+
+        // 畫數字球邊框 (白色)
+        final Paint badgeBorderPaint = Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0;
+        canvas.drawCircle(badgeCenter, badgeRadius, badgeBorderPaint);
+
+        // 畫數字文字
+        TextPainter textPainter = TextPainter(
+          text: TextSpan(
+            text: order.toString(),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+        );
+
+        textPainter.layout();
+        textPainter.paint(
+          canvas,
+          Offset(badgeCenter.dx - textPainter.width / 2, badgeCenter.dy - textPainter.height / 2),
+        );
+
+        // ==========================================
+        // 5. 輸出圖片
+        // ==========================================
         final ui.Picture picture = pictureRecorder.endRecording();
-        final ui.Image resizedImage = await picture.toImage(size.toInt(), size.toInt());
+        // 輸出成較大的圖片尺寸
+        final ui.Image resizedImage = await picture.toImage(canvasSize.toInt(), canvasSize.toInt());
         final ByteData? byteData = await resizedImage.toByteData(format: ui.ImageByteFormat.png);
 
         if (byteData != null) {
           final descriptor = BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
-          _thumbnailCache[markerId] = descriptor;
+          _thumbnailCache[cacheKey] = descriptor;
           return descriptor;
         }
       }
     } catch (e) {
-      print('Error loading custom marker icon for $imageUrl: $e');
+      print('Error loading custom marker: $e');
     }
     return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
   }
@@ -338,17 +411,22 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
     _markers.clear();
     _polylines.clear();
 
-    for (var article in _articlesInCollection) {
+    // 修改：使用帶索引的迴圈來取得順序 (i + 1)
+    for (int i = 0; i < _articlesInCollection.length; i++) {
+      final article = _articlesInCollection[i];
       if (article.location == null || article.id == null) continue;
 
       final GeoPoint geoPoint = article.location!;
       final String articleId = article.id!;
       final String? thumbnailUrl = article.thumbnailUrl;
+      final int sequenceNumber = i + 1; // 順序從 1 開始
 
       BitmapDescriptor markerIcon;
       if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
-        markerIcon = await _getCustomMarkerIcon(thumbnailUrl, articleId);
+        // 傳入 sequenceNumber
+        markerIcon = await _getCustomMarkerIcon(thumbnailUrl, articleId, sequenceNumber);
       } else {
+        // 如果沒有圖片，目前暫時維持預設標記 (如果也想顯示數字，需另外處理)
         markerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
       }
 
@@ -356,9 +434,10 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
         Marker(
           markerId: MarkerId(articleId),
           position: LatLng(geoPoint.latitude, geoPoint.longitude),
-          // InfoWindow 設為空，因為我們使用自定義的 CustomInfoWindow
           infoWindow: const InfoWindow(title: '', snippet: ''),
           icon: markerIcon,
+          // 為了讓使用者容易點擊到最新的點，可以透過 zIndex 控制堆疊順序
+          zIndex: sequenceNumber.toDouble(),
           onTap: () {
             _showCustomInfoWindow(article);
           },
@@ -366,8 +445,9 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
       );
     }
 
-    // 保留路徑連線效果
+    // ... (保留原本的 Polylines 邏輯) ...
     if (_articlesInCollection.length > 1) {
+      // ... 你的 polyline 程式碼 ...
       List<LatLng> polylinePoints = _articlesInCollection
           .where((article) => article.location != null)
           .map((article) {
@@ -380,12 +460,12 @@ class _TravelRouteMapPageState extends State<TravelRouteMapPage> {
           Polyline(
             polylineId: const PolylineId('travel_route'),
             points: polylinePoints,
-            color: Colors.blueAccent, // 稍微調整顏色使其更亮眼
+            color: Colors.blueAccent,
             width: 5,
             jointType: JointType.round,
             startCap: Cap.roundCap,
             endCap: Cap.roundCap,
-            patterns: [PatternItem.dash(30), PatternItem.gap(10)], // 可選：加上虛線效果增加設計感，如果不喜歡可移除
+            patterns: [PatternItem.dash(30), PatternItem.gap(10)],
           ),
         );
       }
