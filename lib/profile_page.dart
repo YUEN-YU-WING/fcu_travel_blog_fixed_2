@@ -33,8 +33,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
     final XFile? image = await picker.pickImage(
       source: ImageSource.gallery,
-      imageQuality: isBackground ? 80 : 70, // 背景圖品質稍微好一點
-      maxWidth: isBackground ? 1024 : 512,  // 背景圖寬度允許大一點
+      imageQuality: isBackground ? 80 : 70,
+      maxWidth: isBackground ? 1024 : 512,
       maxHeight: isBackground ? 1024 : 512,
     );
 
@@ -51,6 +51,9 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       // 1. 決定路徑與檔名
       final String folder = isBackground ? 'user_backgrounds' : 'user_avatars';
+      // 建議：檔名可以加上時間戳記，避免快取問題導致換了圖卻看不出來
+      // String fileName = '${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      // 但為了不佔用過多空間，維持原樣覆蓋舊檔也是一種選擇：
       final storageRef = FirebaseStorage.instance
           .ref()
           .child(folder)
@@ -65,16 +68,36 @@ class _ProfilePageState extends State<ProfilePage> {
       // 3. 取得連結
       final String downloadUrl = await storageRef.getDownloadURL();
 
-      // 4. 更新 Firestore
+      // 4. 更新 Firestore Users 集合 (個人資料)
       final Map<String, dynamic> updateData = isBackground
-          ? {'backgroundImageUrl': downloadUrl} // 新增欄位
+          ? {'backgroundImageUrl': downloadUrl}
           : {'photoURL': downloadUrl};
 
       await FirebaseFirestore.instance.collection('users').doc(user.uid).update(updateData);
 
-      // 5. 如果是頭像，也要更新 Auth 裡的 photoURL
+      // 5. 如果是頭像，進行額外處理
       if (!isBackground) {
+        // (A) 更新 Auth 裡的 photoURL (為了即時性)
         await user.updatePhotoURL(downloadUrl);
+
+        // (B) 🔥 新增：同步更新所有歷史文章的作者頭像
+        // 這跟剛剛改名字的邏輯一樣，確保文章列表看到的新頭像
+        try {
+          final batch = FirebaseFirestore.instance.batch();
+          final articlesSnapshot = await FirebaseFirestore.instance
+              .collection('articles')
+              .where('ownerUid', isEqualTo: user.uid) // 記得用 ownerUid
+              .get();
+
+          for (var doc in articlesSnapshot.docs) {
+            batch.update(doc.reference, {'authorPhotoUrl': downloadUrl});
+          }
+          await batch.commit();
+          print("已同步更新 ${articlesSnapshot.docs.length} 篇文章的頭像");
+        } catch (e) {
+          print("同步更新文章頭像失敗: $e");
+          // 這裡可以選擇不報錯給使用者，因為個人頭像已經換成功了，只是舊文章沒同步到
+        }
       }
 
       if (mounted) {

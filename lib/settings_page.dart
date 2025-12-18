@@ -45,35 +45,43 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     try {
-      // 1. 更新 Firebase Authentication 的 displayName
+      // 1. 更新 Firebase Auth (保持原樣)
       await user?.updateDisplayName(name);
-      await user?.reload(); // 重新載入用戶數據以確保本地狀態更新
+      await user?.reload();
 
-      // 2. 更新 Firestore 中對應用戶文檔的 displayName
+      // 2. 更新 Firestore users 集合 (保持原樣)
       await _firestore.collection('users').doc(user!.uid).update({
         'displayName': name,
-        'updatedAt': FieldValue.serverTimestamp(), // 記錄更新時間
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // 3. (可選) 更新用戶發布的所有文章中的 authorName 字段
-      // 這一操作會比較耗費資源，尤其是文章數量多時。
-      // 如果你希望所有歷史文章中的作者名字都隨之更新，則需要執行此操作。
-      // 另一種策略是只在發布新文章時使用最新的 authorName，或者在讀取文章時實時從 users 集合獲取 authorName。
-      // 為了簡潔和性能，通常會選擇後兩種策略。如果堅持更新所有歷史文章，建議使用 Cloud Functions 執行批次寫入。
-      // 這裡我提供一個基本的實現，但請注意其性能影響。
-
-      // 創建一個批次寫入，用於更新該用戶所有文章的 authorName
+      // 3. 修正：批次更新文章 (這裡要改！)
       final batch = _firestore.batch();
+
       final articlesSnapshot = await _firestore
           .collection('articles')
-          .where('authorUid', isEqualTo: user!.uid)
+      // ❌ 原本： .where('authorUid', isEqualTo: user!.uid)
+      // ✅ 修正： 改成 ownerUid 以符合你的資料庫欄位
+          .where('ownerUid', isEqualTo: user!.uid)
           .get();
+
+      // 為了安全起見，可以加一個 log 看看抓到幾篇
+      print("找到 ${articlesSnapshot.docs.length} 篇需要更新的文章");
 
       for (var doc in articlesSnapshot.docs) {
         batch.update(doc.reference, {'authorName': name});
       }
-      await batch.commit();
 
+      final routeSnapshot = await _firestore
+          .collection('travelRouteCollections')
+          .where('ownerUid', isEqualTo: user!.uid) // 找出我的行程
+          .get();
+
+      for (var doc in routeSnapshot.docs) {
+        batch.update(doc.reference, {'ownerName': name});
+      }
+
+      await batch.commit();
 
       setState(() => _statusMsg = "名字已更新");
     } on FirebaseAuthException catch (e) {
